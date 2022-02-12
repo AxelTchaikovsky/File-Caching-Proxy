@@ -1,0 +1,14 @@
+# extensions
+*.class
+
+# javadoc
+doc/
+
+# folders
+sample/
+include/
+out/
+
+# jetbrains
+.idea
+*.iml
