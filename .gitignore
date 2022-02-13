@@ -1,5 +1,6 @@
 # extensions
 *.class
+!lib/*.class
 
 # javadoc
 doc/
