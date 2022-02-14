@@ -2,7 +2,9 @@
 
 import java.io.*;
 import java.nio.file.FileSystems;
+import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 
@@ -57,32 +59,121 @@ public class Proxy {
                 }
             } catch (FileNotFoundException e) {
                 return Errors.ENOENT;
+            } catch (SecurityException e) {
+                return Errors.EPERM;
             }
-            return Errors.ENOSYS;
+            return currFd;
         }
 
         public int close( int fd ) {
-            return Errors.ENOSYS;
+            if (!fdPath.containsKey(fd)) {
+                return Errors.EBADF;
+            }
+            fdPath.remove(fd);
+            fdRAF.remove(fd);
+            return 0;
         }
 
         public long write( int fd, byte[] buf ) {
-            return Errors.ENOSYS;
+            if (!fdPath.containsKey(fd)) {
+                return Errors.EBADF;
+            }
+
+            RandomAccessFile writeFile = fdRAF.get(fd);
+            try {
+                writeFile.write(buf);
+            } catch (IOException e) {
+                e.printStackTrace();
+                return Errors.EBADF;
+            }
+
+            return buf.length;
         }
 
         public long read( int fd, byte[] buf ) {
-            return Errors.ENOSYS;
+            if (!fdPath.containsKey(fd)) {
+                return Errors.EBADF;
+            }
+
+            RandomAccessFile readFile = fdRAF.get(fd);
+            try {
+                int rd = readFile.read(buf);
+                if (rd == -1) return 0;
+                return rd;
+            } catch (IOException e) {
+                e.printStackTrace();
+                return Errors.EBADF;
+            }
         }
 
         public long lseek( int fd, long pos, LseekOption o ) {
-            return Errors.ENOSYS;
+            if (!fdPath.containsKey(fd)) {
+                return Errors.EBADF;
+            }
+            if (pos < 0) {
+                return Errors.EINVAL;
+            }
+
+            RandomAccessFile lskFile = fdRAF.get(fd);
+            switch (o) {
+                case FROM_START:
+                    break;
+                case FROM_END:
+                    try {
+                        pos = lskFile.length() + pos;
+                    } catch (IOException e) {
+                        e.printStackTrace();
+                    }
+                    break;
+                case FROM_CURRENT:
+                    try {
+                        pos = lskFile.getFilePointer() + pos;
+                    } catch (IOException e) {
+                        e.printStackTrace();
+                    }
+                    break;
+                default:
+                    return Errors.EINVAL;
+            }
+            if (pos < 0) return Errors.EINVAL;
+            try {
+                lskFile.seek(pos);
+                return pos;
+            } catch (IOException e) {
+                e.printStackTrace();
+                return -1;
+            }
         }
 
         public int unlink( String path ) {
-            return Errors.ENOSYS;
+            File file = new File(path);
+            if (!file.exists()) {
+                return Errors.ENOENT;
+            }
+            if (file.isDirectory()) {
+                return Errors.EISDIR;
+            }
+
+            try {
+                Files.delete(Paths.get(path));
+                return 0;
+            } catch (IOException e) {
+                e.printStackTrace();
+                return -1;
+            }
         }
 
         public void clientdone() {
-            return;
+            for (int fd : fdRAF.keySet()) {
+                RandomAccessFile rFile = fdRAF.get(fd);
+                fdPath.remove(fd);
+                fdRAF.remove(fd);
+                try {
+                    rFile.close();
+                } catch (IOException e) {
+                    e.printStackTrace();
+                }
+            }
         }
 
         /**
@@ -94,7 +185,7 @@ public class Proxy {
             return FileSystems.getDefault().getPath(OrigPath).normalize().toString();
         }
 
-        private Integer fetchFd() {
+        private synchronized Integer fetchFd() {
             return fd++;
         }
 
