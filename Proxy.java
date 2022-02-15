@@ -22,21 +22,55 @@ public class Proxy {
          * @return file descriptor or -errno
          */
         public int open( String path, OpenOption o ) {
+            // Print Message
+            System.err.println("Open: " + path + "\n");
+            switch (o) {
+
+                case READ:
+                    System.err.println("MODE: Read\n");
+                    break;
+                case WRITE:
+                    System.err.println("MODE: Write\n");
+                    break;
+                case CREATE:
+                    System.err.println("MODE: Create\n");
+                    break;
+                case CREATE_NEW:
+                    System.err.println("MODE: Creat_new\n");
+                    break;
+            }
+
             Integer currFd;
             path = normalize(path);
             File file = new File(path);
-            if (!file.exists() && (o == OpenOption.READ || o == OpenOption.WRITE)) {
-                return Errors.ENOENT;
-            } else if (file.isDirectory()) {
+
+            if (!file.exists()) {
+                System.err.println("file doesn't exist\n");
+            }
+            if (file.isDirectory()) {
+                System.err.println("file is directory\n");
+            }
+
+            if (!file.exists()) {
+                if (o == OpenOption.READ || o == OpenOption.WRITE) {
+                    System.err.println("Error: ENOENT1");
+                    return Errors.ENOENT;
+                }
+//                if ((o == OpenOption.CREATE || o == OpenOption.CREATE_NEW) && !file.canWrite()) return -13;
+            } else if (file.isDirectory() && o != OpenOption.READ) {
                 // May be wrong condition
+                System.err.println("Error: EISDIR");
                 return Errors.EISDIR;
             }
+
             try {
                 switch (o) {
                     case READ:
                         currFd = fetchFd();
                         fdPath.put(currFd, path);
-                        fdRAF.put(currFd, new RandomAccessFile(file, "r"));
+                        if (!file.isDirectory()) {
+                            fdRAF.put(currFd, new RandomAccessFile(file, "r"));
+                        }
                         break;
                     case WRITE:
                         currFd = fetchFd();
@@ -58,8 +92,10 @@ public class Proxy {
                         return Errors.EINVAL;
                 }
             } catch (FileNotFoundException e) {
+                System.err.println("Error: ENOENT2");
                 return Errors.ENOENT;
             } catch (SecurityException e) {
+                System.err.println("Error: EPERM");
                 return Errors.EPERM;
             }
             return currFd;
@@ -93,6 +129,10 @@ public class Proxy {
         public long read( int fd, byte[] buf ) {
             if (!fdPath.containsKey(fd)) {
                 return Errors.EBADF;
+            }
+
+            if (!fdRAF.containsKey(fd)) {
+                return Errors.EISDIR;
             }
 
             RandomAccessFile readFile = fdRAF.get(fd);
@@ -156,11 +196,11 @@ public class Proxy {
 
             try {
                 Files.delete(Paths.get(path));
-                return 0;
             } catch (IOException e) {
                 e.printStackTrace();
                 return -1;
             }
+            return 0;
         }
 
         public void clientdone() {
