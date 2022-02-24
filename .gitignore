@@ -10,9 +10,12 @@ sample/
 include/
 out/
 
-# test files
+# Test files
 foo*
 
 # jetbrains
 .idea
 *.iml
+/fileroot/
+/tmp/
+/output*
