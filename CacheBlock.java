@@ -1,4 +1,5 @@
 import java.io.File;
+import java.io.IOException;
 
 public class CacheBlock {
     /** Relative path of cached file */
@@ -7,6 +8,8 @@ public class CacheBlock {
     private File file;
     /** Flag indicating if the cache has been changed */
     private boolean isDirty;
+    /** Flag indicating if the file in cache is open by a client */
+    private boolean isOpen;
     /** Version number */
     private long version;
     public CacheBlock prev;
@@ -23,6 +26,13 @@ public class CacheBlock {
         this.path = path;
         this.version = version;
         this.file = new File(cachePath);
+        this.isOpen = false;
+        this.isDirty = false;
+        try {
+            file.createNewFile();
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
     }
 
     public long getVersion() {
@@ -43,5 +53,24 @@ public class CacheBlock {
 
     public String getPath() {
         return path;
+    }
+
+    public File getFile() {
+        return file;
+    }
+
+    /**
+     * Delete the file on disk linked to the cache block.
+     */
+    public void deleteFile() {
+        file.delete();
+    }
+
+    public boolean isOpen() {
+        return isOpen;
+    }
+
+    public void setOpen(boolean open) {
+        isOpen = open;
     }
 }

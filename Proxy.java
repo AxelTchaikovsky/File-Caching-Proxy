@@ -64,7 +64,7 @@ public class Proxy {
                 randomAccessFile.write(rawFile.getBuf());
                 randomAccessFile.close();
                 synchronized (versionLock) {
-                    pathVersion.put(path, fileMeta.getVersion());
+                    lruCache.put(path, fileMeta.getVersion());
                     System.err.println("[ Updated current version: " + fileMeta.getVersion() + " ]");
                 }
             } catch (IOException e) {
@@ -101,7 +101,6 @@ public class Proxy {
                 return Errors.EPERM;
             }
 
-            File fileLocal = new File(cachePath);
             FileMeta fileMeta = new FileMeta();
 
             // Check to server every time we call open()
@@ -109,6 +108,17 @@ public class Proxy {
                 fileMeta = server.getFileMeta(path);
             } catch (RemoteException e) {
                 e.printStackTrace();
+            }
+
+            if (fileMeta.exists() && o == OpenOption.CREATE_NEW) return Errors.EEXIST;
+            if (!fileMeta.exists()) {
+                if (o == OpenOption.READ || o == OpenOption.WRITE) {
+                    System.err.println("Error: ENOENT1");
+                    return Errors.ENOENT;
+                }
+            } else if (fileMeta.isDirectory() && o != OpenOption.READ) {
+                System.err.println("Error: EISDIR");
+                return Errors.EISDIR;
             }
 
             /*--------------------  DEBUG PRINT MESSAGE S  --------------------*/
@@ -121,23 +131,22 @@ public class Proxy {
             /*--------------------  DEBUG PRINT MESSAGE E  --------------------*/
 
             try {
-                if (!fileLocal.exists()) {
+                if (!lruCache.contains(path)) {
                     System.err.println("Local file: " + path + " doesn't exist.");
-                    // If local file does not exist
                     if (!fileMeta.exists()) {
                         // Create empty file when file is not on server
                         if (!server.creatFile(path)) {
                             System.err.println(path + " failed to be created in Server. ");
                         }
+                        // Creat empty file locally
+                        lruCache.put(path, 0L);
                     } else {
-                        // If remote file exists then fetch from server
+                        // If remote file exists then fetch from server, put into cache
+                        // and update version number
                         getFileFromServer(path, cachePath);
                     }
                 } else {
-                    if (pathVersion.isEmpty()) {
-                        System.err.println("Version Map is empty!!!!!!!");
-                    }
-                    long localVersion = pathVersion.getOrDefault(path, -1L);
+                    long localVersion = lruCache.getFileVersion(path);
                     long remoteVersion = server.getFileVersion(path);
                     System.err.println("[ Local version: " + localVersion + " ]");
                     System.err.println("[ Remote version: " + remoteVersion + " ]");
@@ -145,7 +154,7 @@ public class Proxy {
                         // If local cached version is stale, fetch file from server
                         System.err.println("Updating local file/directory ...");
                         if (fileMeta.isDirectory()) {
-                            if (!fileLocal.mkdir()) {
+                            if (!new File(cachePath).mkdir()) {
                                 System.err.println("Error creating local directory. ");
                             }
                         } else {
@@ -159,17 +168,10 @@ public class Proxy {
                 e.printStackTrace(System.err);
             }
 
-            if (!fileLocal.exists()) {
-                if (o == OpenOption.READ || o == OpenOption.WRITE) {
-                    System.err.println("Error: ENOENT1");
-                    return Errors.ENOENT;
-                }
-            } else if (fileLocal.isDirectory() && o != OpenOption.READ) {
-                System.err.println("Error: EISDIR");
-                return Errors.EISDIR;
-            }
-
             /* Once updated, focus on local cache. */
+            CacheBlock cacheBlock = lruCache.get(path);
+            File fileLocal = cacheBlock.getFile();
+            lruCache.setOpenStatus(path, true);
             try {
                 switch (o) {
                     case READ:
@@ -179,23 +181,15 @@ public class Proxy {
                         } else {
                             fdObjectMap.put(currFd, new FdObject(path));
                         }
-                        pathVersion.putIfAbsent(path, 0L);
                         break;
                     case WRITE:
                         currFd = fetchFd();
                         fdObjectMap.put(currFd, new FdObject(cacheRoot, path, "w"));
-                        pathVersion.putIfAbsent(path, 0L);
                         break;
                     case CREATE:
-                        currFd = fetchFd();
-                        fdObjectMap.put(currFd, new FdObject(cacheRoot, path, "rw"));
-                        pathVersion.putIfAbsent(path, 0L);
-                        break;
                     case CREATE_NEW:
-                        if (fileLocal.exists()) return Errors.EEXIST;
                         currFd = fetchFd();
                         fdObjectMap.put(currFd, new FdObject(cacheRoot, path, "rw"));
-                        pathVersion.putIfAbsent(path, 0L);
                         break;
                     default:
                         return Errors.EINVAL;
@@ -228,9 +222,10 @@ public class Proxy {
              */
             String path = fdObjectMap.get(fd).getPath();
             fdObjectMap.get(fd).closeRAF();
+            lruCache.setOpenStatus(path, false);
             try {
                 /* If path marked dirty cache, then write back to server. */
-                if (!pathDirty.containsKey(path) || pathDirty.get(path)) {
+                if (lruCache.isFileDirty(path)) {
                     /* Upload file from cache to server */
                     System.err.println("[ Upload file from cache to server ]");
                     RandomAccessFile randomAccessFile =
@@ -238,7 +233,6 @@ public class Proxy {
                     long offset = 0;
                     byte[] buf = new byte[MAX_CHUNK_SIZE];
                     while (offset < randomAccessFile.length() - MAX_CHUNK_SIZE) {
-                        // TODO: casted offset from long to int, correctness depend on file length < MAX_INT
                         randomAccessFile.seek(offset);
                         randomAccessFile.read(buf);
                         server.writeFile(path, buf, offset);
@@ -251,8 +245,11 @@ public class Proxy {
                     long newVersion = server.writeFile(path, buf, offset);
                     // TODO: Maybe we do not need synchronized here, close() is already synchronized
                     synchronized (versionLock) {
-                        pathVersion.put(path, newVersion);
+                        lruCache.setFileVersion(path, newVersion);
                         System.err.println("[ Server distributed " + path + " version: " + newVersion + " ]");
+                    }
+                    synchronized (dirtLock) {
+                        lruCache.setDirtyStatus(path, false);
                     }
                 }
             } catch (IOException e) {
@@ -277,7 +274,7 @@ public class Proxy {
             try {
                 writeFile.write(buf);
                 synchronized (dirtLock) {
-                    pathDirty.putIfAbsent(fdObjectMap.get(fd).getPath(), true);
+                    lruCache.setDirtyStatus(fdObjectMap.get(fd).getPath(), true);
                 }
             } catch (IOException e) {
                 e.printStackTrace(System.err);
@@ -345,7 +342,7 @@ public class Proxy {
             if (!cachePath.contains(cacheRoot)) {
                 return Errors.EPERM;
             }
-            File file = new File(cachePath);
+
             FileMeta fileMeta;
             try {
                 fileMeta = server.getFileMeta(path);
@@ -357,7 +354,7 @@ public class Proxy {
                 } else {
                     return Errors.ENOENT;
                 }
-                Files.deleteIfExists(file.toPath());
+                lruCache.unlinkBlock(path);
             } catch (IOException e) {
                 e.printStackTrace(System.err);
                 return -1;
