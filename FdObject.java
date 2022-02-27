@@ -9,15 +9,28 @@ import java.io.RandomAccessFile;
  */
 public class FdObject {
     /** Relative path to file */
-    String path;
+    private String path;
     /** Random access file related to the session */
-    RandomAccessFile randomAccessFile;
-    boolean isDirectory;
+    private RandomAccessFile randomAccessFile;
+    private boolean isDirectory;
+
+    /**
+     * Initialize the FdObject as a file, with mode specified for the
+     * random access file.
+     * @param cacheRoot root directory of cache folder
+     * @param path relative path
+     * @param mode read write permission flag
+     * @throws FileNotFoundException when the file could not be found.
+     */
     public FdObject(String cacheRoot, String path, String mode) throws FileNotFoundException {
         this.path = path;
         this.randomAccessFile = new RandomAccessFile(cacheRoot + path, mode);
     }
 
+    /**
+     * Initialize the FdObject as a directory.
+     * @param path relative path
+     */
     public FdObject(String path) {
         this.path = path;
         this.isDirectory = true;

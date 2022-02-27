@@ -21,10 +21,8 @@ public class Proxy {
     private static class FileHandler implements FileHandling {
         private final Object dirtLock = new Object();
         private final Object versionLock = new Object();
-        /** A thread-safe hashmap mapping fd to file path */
-        private final Map<Integer, String> fdPath = new ConcurrentHashMap<>();
-        /** A thread-safe hashmap mapping fd to random access file */
-        private final Map<Integer, RandomAccessFile> fdRAF = new ConcurrentHashMap<>();
+        /** A thread-safe hashmap mapping fd to {@link FdObject} */
+        private final Map<Integer, FdObject> fdObjectMap = new ConcurrentHashMap<>();
         /** A thread-safe relative path to version map */
         private final Map<String, Long> pathVersion = new ConcurrentHashMap<>();
         /** A thread-safe relative path to if-cache-dirty map */
@@ -154,29 +152,27 @@ public class Proxy {
                 switch (o) {
                     case READ:
                         currFd = fetchFd();
-                        fdPath.put(currFd, path);
                         if (!fileLocal.isDirectory()) {
-                            fdRAF.put(currFd, new RandomAccessFile(cachePath, "r"));
+                            fdObjectMap.put(currFd, new FdObject(cacheRoot, path, "r"));
+                        } else {
+                            fdObjectMap.put(currFd, new FdObject(path));
                         }
                         pathVersion.putIfAbsent(path, 0L);
                         break;
                     case WRITE:
                         currFd = fetchFd();
-                        fdPath.put(currFd, path);
-                        fdRAF.put(currFd, new RandomAccessFile(cachePath, "w"));
+                        fdObjectMap.put(currFd, new FdObject(cacheRoot, path, "w"));
                         pathVersion.putIfAbsent(path, 0L);
                         break;
                     case CREATE:
                         currFd = fetchFd();
-                        fdPath.put(currFd, path);
-                        fdRAF.put(currFd, new RandomAccessFile(cachePath, "rw"));
+                        fdObjectMap.put(currFd, new FdObject(cacheRoot, path, "rw"));
                         pathVersion.putIfAbsent(path, 0L);
                         break;
                     case CREATE_NEW:
                         if (fileLocal.exists()) return Errors.EEXIST;
                         currFd = fetchFd();
-                        fdPath.put(currFd, path);
-                        fdRAF.put(currFd, new RandomAccessFile(cachePath, "rw"));
+                        fdObjectMap.put(currFd, new FdObject(cacheRoot, path, "rw"));
                         pathVersion.putIfAbsent(path, 0L);
                         break;
                     default:
@@ -196,20 +192,20 @@ public class Proxy {
 
         public synchronized int close( int fd ) {
             System.err.println("[ Closing fd: " + fd + " ]");
-            if (!fdPath.containsKey(fd)) {
-                return Errors.EBADF;
-            } else if (!fdRAF.containsKey(fd)) {
-                /* When the file linked to fd is a directory */
-                fdPath.remove(fd);
-                pathVersion.remove(fdPath.get(fd));
+            /*---------- Errors handling ----------*/
+            if (!fdObjectMap.containsKey(fd)) return Errors.EBADF;
+            if (fdObjectMap.get(fd).isDirectory()) {
+                fdObjectMap.remove(fd);
                 return 0;
             }
+            /*-------------------------------------*/
 
             /*
              * Already dealt with fd being a directory,
              * following fds is valid file, not directory.
              */
-            String path = fdPath.get(fd);
+            String path = fdObjectMap.get(fd).getPath();
+            fdObjectMap.get(fd).closeRAF();
             try {
                 /* If path marked dirty cache, then write back to server. */
                 if (!pathDirty.containsKey(path) || pathDirty.get(path)) {
@@ -240,8 +236,7 @@ public class Proxy {
             } catch (IOException e) {
                 e.printStackTrace();
             }
-            fdPath.remove(fd);
-            fdRAF.remove(fd);
+            fdObjectMap.remove(fd);
             return 0;
         }
 
@@ -252,18 +247,18 @@ public class Proxy {
          * @return length written to file
          */
         public long write(int fd, byte[] buf) {
-            if (!fdPath.containsKey(fd)) {
-                return Errors.EBADF;
-            }
+            /*---------- Errors handling ----------*/
+            if (!fdObjectMap.containsKey(fd)) return Errors.EBADF;
+            /*-------------------------------------*/
 
-            RandomAccessFile writeFile = fdRAF.get(fd);
+            RandomAccessFile writeFile = fdObjectMap.get(fd).getRAF();
             try {
                 writeFile.write(buf);
                 synchronized (dirtLock) {
-                    pathDirty.putIfAbsent(fdPath.get(fd), true);
+                    pathDirty.putIfAbsent(fdObjectMap.get(fd).getPath(), true);
                 }
             } catch (IOException e) {
-                e.printStackTrace();
+                e.printStackTrace(System.err);
                 return Errors.EBADF;
             }
 
@@ -271,15 +266,12 @@ public class Proxy {
         }
 
         public long read(int fd, byte[] buf) {
-            if (!fdPath.containsKey(fd)) {
-                return Errors.EBADF;
-            }
+            /*---------- Errors handling ----------*/
+            if (!fdObjectMap.containsKey(fd)) return Errors.EBADF;
+            if (fdObjectMap.get(fd).isDirectory()) return Errors.EISDIR;
+            /*-------------------------------------*/
 
-            if (!fdRAF.containsKey(fd)) {
-                return Errors.EISDIR;
-            }
-
-            RandomAccessFile readFile = fdRAF.get(fd);
+            RandomAccessFile readFile = fdObjectMap.get(fd).getRAF();
             try {
                 int rd = readFile.read(buf);
                 if (rd == -1) return 0;
@@ -291,40 +283,30 @@ public class Proxy {
         }
 
         public long lseek(int fd, long pos, FileHandling.LseekOption o) {
-            if (!fdPath.containsKey(fd)) {
-                return Errors.EBADF;
-            }
-            if (pos < 0) {
-                return Errors.EINVAL;
-            }
-
-            RandomAccessFile randomAccessFile = fdRAF.get(fd);
-            switch (o) {
-                case FROM_START:
-                    break;
-                case FROM_END:
-                    try {
-                        pos = randomAccessFile.length() + pos;
-                    } catch (IOException e) {
-                        e.printStackTrace();
-                    }
-                    break;
-                case FROM_CURRENT:
-                    try {
-                        pos = randomAccessFile.getFilePointer() + pos;
-                    } catch (IOException e) {
-                        e.printStackTrace();
-                    }
-                    break;
-                default:
-                    return Errors.EINVAL;
-            }
+            /*---------- Errors handling ----------*/
+            if (!fdObjectMap.containsKey(fd)) return Errors.EBADF;
             if (pos < 0) return Errors.EINVAL;
+            /*-------------------------------------*/
+
+            RandomAccessFile randomAccessFile = fdObjectMap.get(fd).getRAF();
             try {
+                switch (o) {
+                    case FROM_START:
+                        break;
+                    case FROM_END:
+                        pos = randomAccessFile.length() + pos;
+                        break;
+                    case FROM_CURRENT:
+                        pos = randomAccessFile.getFilePointer() + pos;
+                        break;
+                    default:
+                        return Errors.EINVAL;
+                }
+                if (pos < 0) return Errors.EINVAL;
                 randomAccessFile.seek(pos);
                 return pos;
             } catch (IOException e) {
-                e.printStackTrace();
+                e.printStackTrace(System.err);
                 return -1;
             }
         }
@@ -353,24 +335,19 @@ public class Proxy {
                 } else {
                     return Errors.ENOENT;
                 }
-            } catch (IOException e) {
-                e.printStackTrace(System.err);
-            }
-
-            try {
                 Files.deleteIfExists(file.toPath());
             } catch (IOException e) {
                 e.printStackTrace(System.err);
                 return -1;
             }
+
             return 0;
         }
 
         public void clientdone() {
-            for (int fd : fdRAF.keySet()) {
-                RandomAccessFile randomAccessFile = fdRAF.get(fd);
-                fdPath.remove(fd);
-                fdRAF.remove(fd);
+            for (int fd : fdObjectMap.keySet()) {
+                RandomAccessFile randomAccessFile = fdObjectMap.get(fd).getRAF();
+                fdObjectMap.remove(fd);
                 try {
                     randomAccessFile.close();
                 } catch (IOException e) {
