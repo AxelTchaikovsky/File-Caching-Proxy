@@ -18,9 +18,9 @@ public class Server extends UnicastRemoteObject implements RemoteFileHandler {
     private static final int ARG_LEN = 2;
     private static String root;
     /** hash map between absolute path on server and an object lock */
-    private Map<String, Object> masterCopysMap;
+    private final Map<String, Object> masterCopysMap;
     /** hash map between absolute path on server and version number */
-    private Map<String, Long> versionMap;
+    private final Map<String, Long> versionMap;
     /**
      * Creates and exports a new UnicastRemoteObject object using the
      * particular supplied port.

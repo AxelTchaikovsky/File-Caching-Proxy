@@ -17,6 +17,7 @@ public class Proxy {
     private static final int ARG_LEN = 4;
     private static String cacheRoot = "cache/default/";
     private static RemoteFileHandler server;
+    private static LRUCache lruCache;
     private static final Object versionLock = new Object();
     /** A thread-safe relative path to version map */
     private static final Map<String, Long> pathVersion = new ConcurrentHashMap<>();
@@ -408,6 +409,9 @@ public class Proxy {
         int port = Integer.parseInt(args[1]);
         cacheRoot = args[2];
         cacheSize = Integer.parseInt(args[3]);
+
+        // Initialize cache
+        lruCache = new LRUCache(cacheSize, cacheRoot);
 
         String url = "//" + serverIP + ":" + port + "/server";
 
