@@ -69,9 +69,10 @@ public class Server extends UnicastRemoteObject implements RemoteFileHandler {
     }
 
     @Override
-    public void writeFile(String path, byte[] buf, long offset) throws RemoteException {
+    public long writeFile(String path, byte[] buf, long offset) throws RemoteException {
         String absPath = root + path;
         File file = new File(absPath);
+        long newVersion = -1;
         System.err.println("[ Writing to file : " + absPath  + " ]");
         // Mutual exclusion: one writer at a time
         masterCopysMap.putIfAbsent(absPath, new Object());
@@ -81,12 +82,14 @@ public class Server extends UnicastRemoteObject implements RemoteFileHandler {
                 randomAccessFile.seek(offset);
                 randomAccessFile.write(buf);
                 // Update version number
-                versionMap.put(absPath, versionMap.getOrDefault(absPath, -1L) + 1);
-                System.err.println("[ Remote Ver.: " + versionMap.get(absPath) + " ]");
+                newVersion = versionMap.getOrDefault(absPath, -1L) + 1;
+                versionMap.put(absPath, newVersion);
+                System.err.println("[ Remote Ver.: " + newVersion + " ]");
             } catch (IOException e) {
                 e.printStackTrace();
             }
         }
+        return newVersion;
     }
 
     /**

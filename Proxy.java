@@ -19,6 +19,7 @@ public class Proxy {
     private static RemoteFileHandler server;
 
     private static class FileHandler implements FileHandling {
+        private final Object dirtLock = new Object();
         private final Object versionLock = new Object();
         /** A thread-safe hashmap mapping fd to file path */
         private final Map<Integer, String> fdPath = new ConcurrentHashMap<>();
@@ -26,6 +27,8 @@ public class Proxy {
         private final Map<Integer, RandomAccessFile> fdRAF = new ConcurrentHashMap<>();
         /** A thread-safe relative path to version map */
         private final Map<String, Long> pathVersion = new ConcurrentHashMap<>();
+        /** A thread-safe relative path to if-cache-dirty map */
+        private final Map<String, Boolean> pathDirty = new ConcurrentHashMap<>();
 
         private static final int MAX_CHUNCK_SIZE = (int) 1e6;
 
@@ -62,7 +65,7 @@ public class Proxy {
         }
 
         /**
-         * Handle open() request from client
+         * Handle open() request from client, distribute a fd to path.
          * @param path path of target file
          * @param o open option
          * @return file descriptor or -errno
@@ -208,12 +211,8 @@ public class Proxy {
              */
             String path = fdPath.get(fd);
             try {
-                long localVersion = pathVersion.get(path);
-                long remoteVersion = server.getFileVersion(path);
-                System.err.println("[ Local Ver.: " + localVersion + " ]");
-                System.err.println("[ Remote Ver.: " + remoteVersion + " ]");
-
-                if (localVersion > remoteVersion) {
+                /* If path marked dirty cache, then write back to server. */
+                if (!pathDirty.containsKey(path) || pathDirty.get(path)) {
                     /* Upload file from cache to server */
                     System.err.println("[ Upload file from cache to server ]");
                     RandomAccessFile randomAccessFile =
@@ -231,7 +230,12 @@ public class Proxy {
                     System.err.println("[ buf:" + buf.length + " ]");
                     randomAccessFile.seek(offset);
                     randomAccessFile.read(buf);
-                    server.writeFile(path, buf, offset);
+                    long newVersion = server.writeFile(path, buf, offset);
+                    // TODO: Maybe we do not need synchronized here, close() is already synchronized
+                    synchronized (versionLock) {
+                        pathVersion.put(path, newVersion);
+                        System.err.println("[ Server distributed file version: " + newVersion + " ]");
+                    }
                 }
             } catch (IOException e) {
                 e.printStackTrace();
@@ -241,6 +245,12 @@ public class Proxy {
             return 0;
         }
 
+        /**
+         * Write to the random access file, record cache to be dirty
+         * @param fd File descriptor
+         * @param buf content to be written to file
+         * @return length written to file
+         */
         public long write(int fd, byte[] buf) {
             if (!fdPath.containsKey(fd)) {
                 return Errors.EBADF;
@@ -249,9 +259,8 @@ public class Proxy {
             RandomAccessFile writeFile = fdRAF.get(fd);
             try {
                 writeFile.write(buf);
-                synchronized (versionLock) {
-                    pathVersion.put(fdPath.get(fd),
-                            pathVersion.getOrDefault(fdPath.get(fd), -1L) + 1);
+                synchronized (dirtLock) {
+                    pathDirty.putIfAbsent(fdPath.get(fd), true);
                 }
             } catch (IOException e) {
                 e.printStackTrace();
@@ -347,14 +356,7 @@ public class Proxy {
             } catch (IOException e) {
                 e.printStackTrace(System.err);
             }
-            /*
-            if (!file.exists()) {
-                return Errors.ENOENT;
-            }
-            if (file.isDirectory()) {
-                return Errors.EISDIR;
-            }
-             */
+
             try {
                 Files.deleteIfExists(file.toPath());
             } catch (IOException e) {

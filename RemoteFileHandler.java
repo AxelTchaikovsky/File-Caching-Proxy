@@ -6,7 +6,7 @@ public interface RemoteFileHandler extends Remote {
 
     RawFile getFile(String path, int nbytes, long offset) throws RemoteException;
     public boolean creatFile(String path) throws IOException;
-    void writeFile(String path, byte[] buf, long offset) throws RemoteException;
+    long writeFile(String path, byte[] buf, long offset) throws RemoteException;
     FileMeta getFileMeta(String path) throws RemoteException;
     long getFileVersion(String path) throws RemoteException;
     void unlink(String path) throws IOException;
