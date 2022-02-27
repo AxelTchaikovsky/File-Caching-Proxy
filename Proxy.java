@@ -17,19 +17,24 @@ public class Proxy {
     private static final int ARG_LEN = 4;
     private static String cacheRoot = "cache/default/";
     private static RemoteFileHandler server;
+    private static final Object versionLock = new Object();
+    /** A thread-safe relative path to version map */
+    private static final Map<String, Long> pathVersion = new ConcurrentHashMap<>();
 
     private static class FileHandler implements FileHandling {
         private final Object dirtLock = new Object();
-        private final Object versionLock = new Object();
         /** A thread-safe hashmap mapping fd to {@link FdObject} */
         private final Map<Integer, FdObject> fdObjectMap = new ConcurrentHashMap<>();
-        /** A thread-safe relative path to version map */
-        private final Map<String, Long> pathVersion = new ConcurrentHashMap<>();
         /** A thread-safe relative path to if-cache-dirty map */
         private final Map<String, Boolean> pathDirty = new ConcurrentHashMap<>();
+        private static final int MAX_CHUNK_SIZE = (int) 1e6;
 
-        private static final int MAX_CHUNCK_SIZE = (int) 1e6;
-
+        /**
+         * Download file from server, if file too big, get file by chunks. In the meantime,
+         * sync the version number with server.
+         * @param path relative path to file
+         * @param cachePath absolute path on client's cache
+         */
         private synchronized void getFileFromServer(String path, String cachePath) {
             System.err.println("[ Download file from server to cache ]");
             long offset = 0;
@@ -42,9 +47,9 @@ public class Proxy {
                 }
                 randomAccessFile = new RandomAccessFile(cachePath, "rw");
                 RawFile rawFile;
-                while (offset < fileMeta.getLength() - MAX_CHUNCK_SIZE) {
-                    rawFile = server.getFile(path, MAX_CHUNCK_SIZE, offset);
-                    System.err.println("[ Raw file content: " + Arrays.toString(rawFile.getBuf()) + " ]");
+                while (offset < fileMeta.getLength() - MAX_CHUNK_SIZE) {
+                    rawFile = server.getFile(path, MAX_CHUNK_SIZE, offset);
+//                    System.err.println("[ Raw file content: " + Arrays.toString(rawFile.getBuf()) + " ]");
                     System.err.println("[ Raw file size: " + rawFile.getBuf().length + " ]");
 
                     offset += rawFile.length();
@@ -53,10 +58,14 @@ public class Proxy {
                 }
                 rawFile = server.getFile(path, (int) (fileMeta.getLength() - offset), offset);
                 System.err.println(" "+offset+" "+fileMeta.getLength());
-                System.err.println("[ Raw file content: " + Arrays.toString(rawFile.getBuf()) + " ]");
+//                System.err.println("[ Raw file content: " + Arrays.toString(rawFile.getBuf()) + " ]");
                 System.err.println("[ Raw file size: " + rawFile.getBuf().length + " ]");
                 randomAccessFile.write(rawFile.getBuf());
                 randomAccessFile.close();
+                synchronized (versionLock) {
+                    pathVersion.put(path, fileMeta.getVersion());
+                    System.err.println("[ Updated current version: " + fileMeta.getVersion() + " ]");
+                }
             } catch (IOException e) {
                 e.printStackTrace();
             }
@@ -68,7 +77,7 @@ public class Proxy {
          * @param o open option
          * @return file descriptor or -errno
          */
-        public int open( String path, OpenOption o ) {
+        public int open(String path, OpenOption o) {
             /*--------------------  DEBUG PRINT MESSAGE S  --------------------*/
             System.err.println("Open: " + path + "\n");
             switch (o) {
@@ -94,7 +103,7 @@ public class Proxy {
             File fileLocal = new File(cachePath);
             FileMeta fileMeta = new FileMeta();
 
-            // TODO: Do we need to check to server every time we call open()?
+            // Check to server every time we call open()
             try {
                 fileMeta = server.getFileMeta(path);
             } catch (RemoteException e) {
@@ -111,43 +120,55 @@ public class Proxy {
             /*--------------------  DEBUG PRINT MESSAGE E  --------------------*/
 
             try {
-                long localVersion = pathVersion.getOrDefault(path, -1L);
-                long remoteVersion = server.getFileVersion(path);
-                if ((localVersion < remoteVersion || !fileLocal.exists()) && remoteVersion != -1L) {
-                    System.err.println("Updating local file/directory ...");
-                    if (fileMeta.isDirectory()) {
-                        if (!fileLocal.mkdir()) {
-                            System.err.println("Error creating local directory. ");
-                        }
-                    } else {
-                        getFileFromServer(path, cachePath);
-                    }
-                } else {
-                    // TODO: if conditions are not logically clear
+                if (!fileLocal.exists()) {
+                    System.err.println("Local file: " + path + " doesn't exist.");
+                    // If local file does not exist
                     if (!fileMeta.exists()) {
-                        /* Create empty file when file is not on server */
+                        // Create empty file when file is not on server
                         if (!server.creatFile(path)) {
                             System.err.println(path + " failed to be created in Server. ");
                         }
+                    } else {
+                        // If remote file exists then fetch from server
+                        getFileFromServer(path, cachePath);
                     }
-                    System.err.println(path + " already up to date. ");
+                } else {
+                    if (pathVersion.isEmpty()) {
+                        System.err.println("Version Map is empty!!!!!!!");
+                    }
+                    long localVersion = pathVersion.getOrDefault(path, -1L);
+                    long remoteVersion = server.getFileVersion(path);
+                    System.err.println("[ Local version: " + localVersion + " ]");
+                    System.err.println("[ Remote version: " + remoteVersion + " ]");
+                    if (localVersion < remoteVersion) {
+                        // If local cached version is stale, fetch file from server
+                        System.err.println("Updating local file/directory ...");
+                        if (fileMeta.isDirectory()) {
+                            if (!fileLocal.mkdir()) {
+                                System.err.println("Error creating local directory. ");
+                            }
+                        } else {
+                            getFileFromServer(path, cachePath);
+                        }
+                    } else {
+                        System.err.println(path + " already up to date. ");
+                    }
                 }
             } catch (IOException e) {
                 e.printStackTrace(System.err);
             }
 
-            /* Once updated, focus on local cache. */
             if (!fileLocal.exists()) {
                 if (o == OpenOption.READ || o == OpenOption.WRITE) {
                     System.err.println("Error: ENOENT1");
                     return Errors.ENOENT;
                 }
             } else if (fileLocal.isDirectory() && o != OpenOption.READ) {
-                // May be wrong condition
                 System.err.println("Error: EISDIR");
                 return Errors.EISDIR;
             }
 
+            /* Once updated, focus on local cache. */
             try {
                 switch (o) {
                     case READ:
@@ -214,13 +235,13 @@ public class Proxy {
                     RandomAccessFile randomAccessFile =
                             new RandomAccessFile(normalize(cacheRoot + path), "r");
                     long offset = 0;
-                    byte[] buf = new byte[MAX_CHUNCK_SIZE];
-                    while (offset < randomAccessFile.length() - MAX_CHUNCK_SIZE) {
+                    byte[] buf = new byte[MAX_CHUNK_SIZE];
+                    while (offset < randomAccessFile.length() - MAX_CHUNK_SIZE) {
                         // TODO: casted offset from long to int, correctness depend on file length < MAX_INT
                         randomAccessFile.seek(offset);
                         randomAccessFile.read(buf);
                         server.writeFile(path, buf, offset);
-                        offset += MAX_CHUNCK_SIZE;
+                        offset += MAX_CHUNK_SIZE;
                     }
                     buf = new byte[(int)(randomAccessFile.length() - offset)];
                     System.err.println("[ buf:" + buf.length + " ]");
@@ -230,7 +251,7 @@ public class Proxy {
                     // TODO: Maybe we do not need synchronized here, close() is already synchronized
                     synchronized (versionLock) {
                         pathVersion.put(path, newVersion);
-                        System.err.println("[ Server distributed file version: " + newVersion + " ]");
+                        System.err.println("[ Server distributed " + path + " version: " + newVersion + " ]");
                     }
                 }
             } catch (IOException e) {
@@ -388,7 +409,6 @@ public class Proxy {
         cacheRoot = args[2];
         cacheSize = Integer.parseInt(args[3]);
 
-        // TODO: is the last part of the url valid? "/server"
         String url = "//" + serverIP + ":" + port + "/server";
 
         try {

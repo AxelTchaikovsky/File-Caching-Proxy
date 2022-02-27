@@ -121,15 +121,21 @@ public class Server extends UnicastRemoteObject implements RemoteFileHandler {
         fileMeta.setFileExists(file.exists());
         fileMeta.setIsDirectory(file.isDirectory());
         fileMeta.setLength(file.length());
-//        fileMeta.setVersion(versionMap.getOrDefault(absPath, -1L));
-        // TODO: Do we need to know about file descriptor and version?
+        fileMeta.setVersion(getFileVersion(path));
         return fileMeta;
     }
 
+    /**
+     * Get latest file version from server side, uses relative path.
+     * @param path relative path
+     * @return return -1 if file doesn't exist on server, otherwise return version.
+     * @throws RemoteException when RMI fails
+     */
     @Override
     public long getFileVersion(String path) throws RemoteException {
         String absPath = root + path;
         if (!Files.exists(Paths.get(absPath))) {
+            System.err.println("[ File " + absPath + " does not exist. ]");
             return -1L;
         }
         versionMap.putIfAbsent(absPath, 0L);
