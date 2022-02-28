@@ -36,12 +36,11 @@ public class Proxy {
          * @param path relative path to file
          * @param cachePath absolute path on client's cache
          */
-        private synchronized void getFileFromServer(String path, String cachePath) {
+        private synchronized void getFileFromServer(String path, String cachePath, FileMeta fileMeta) {
             System.err.println("[ Download file from server to cache ]");
             long offset = 0;
             RandomAccessFile randomAccessFile;
             try {
-                FileMeta fileMeta = server.getFileMeta(path);
                 if (!fileMeta.exists()) {
                     System.err.println("[ File doesn't exist in server ]");
                     return;
@@ -143,11 +142,11 @@ public class Proxy {
                     } else {
                         // If remote file exists then fetch from server, put into cache
                         // and update version number
-                        getFileFromServer(path, cachePath);
+                        getFileFromServer(path, cachePath, fileMeta);
                     }
                 } else {
                     long localVersion = lruCache.getFileVersion(path);
-                    long remoteVersion = server.getFileVersion(path);
+                    long remoteVersion = fileMeta.getVersion();
                     System.err.println("[ Local version: " + localVersion + " ]");
                     System.err.println("[ Remote version: " + remoteVersion + " ]");
                     if (localVersion < remoteVersion) {
@@ -158,7 +157,7 @@ public class Proxy {
                                 System.err.println("Error creating local directory. ");
                             }
                         } else {
-                            getFileFromServer(path, cachePath);
+                            getFileFromServer(path, cachePath, fileMeta);
                         }
                     } else {
                         System.err.println(path + " already up to date. ");
@@ -404,7 +403,7 @@ public class Proxy {
 
         String serverIP = args[0];
         int port = Integer.parseInt(args[1]);
-        cacheRoot = args[2];
+        cacheRoot = args[2] + "/";
         cacheSize = Integer.parseInt(args[3]);
 
         // Initialize cache

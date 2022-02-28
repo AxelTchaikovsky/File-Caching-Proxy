@@ -1,4 +1,4 @@
-all: Proxy.class Server.class RemoteFileHandler.class FileMeta.class RawFile.class
+all: Proxy.class Server.class RemoteFileHandler.class FileMeta.class RawFile.class FdObject.class CacheBlock.class LRUCache.class
 
 %.class: %.java
 	javac $<

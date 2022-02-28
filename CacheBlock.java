@@ -62,8 +62,9 @@ public class CacheBlock {
     /**
      * Delete the file on disk linked to the cache block.
      */
-    public void deleteFile() {
-        file.delete();
+    public boolean deleteFile() {
+        System.err.println("[ Deleting file: " + file.getAbsolutePath() + " ]");
+        return file.delete();
     }
 
     public boolean isOpen() {

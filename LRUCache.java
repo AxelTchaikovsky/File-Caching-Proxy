@@ -37,7 +37,8 @@ public class LRUCache {
         if (cacheBlockMap.size() > cacheSize) {
             CacheBlock oldBlock = removeTail();
             cacheBlockMap.remove(oldBlock.getPath());
-            oldBlock.deleteFile();
+            boolean tmp = (oldBlock.deleteFile());
+            assert (tmp);
         }
     }
 
@@ -79,7 +80,6 @@ public class LRUCache {
     /**
      * Set version of file, without updating cache sequence.
      * @param path relative path
-     * @return version number or -1 if not found in cache
      */
     public void setFileVersion(String path, long version) {
         if (cacheBlockMap.containsKey(path)) {
@@ -152,6 +152,11 @@ public class LRUCache {
             cacheBlock = cacheBlock.prev;
         }
         removeBlock(cacheBlock);
+        if (cacheBlock == null) {
+            System.err.println("[ Nothing evictable, all files open. ]");
+            return null;
+        }
+        System.err.println("[ Evicted: " + cacheBlock.getPath() + " ]");
         return cacheBlock;
     }
 
