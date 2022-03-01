@@ -140,9 +140,24 @@ public class Proxy {
                         // Creat empty file locally
                         lruCache.put(path, 0L);
                     } else {
-                        // If remote file exists then fetch from server, put into cache
-                        // and update version number
-                        getFileFromServer(path, cachePath, fileMeta);
+                        File file = new File(cachePath);
+                        File parentDirectory = file.getParentFile();
+
+                        while (parentDirectory != null && !parentDirectory.exists()) {
+                            parentDirectory.mkdir();
+                            parentDirectory = parentDirectory.getParentFile();
+                        }
+
+                        if (fileMeta.isDirectory()) {
+                            File dirFile = new File(cachePath);
+                            if (!dirFile.mkdir()) {
+                                System.err.println("Error creating local directory. 1");
+                            }
+                        } else {
+                            // If remote file exists then fetch from server, put into cache
+                            // and update version number
+                            getFileFromServer(path, cachePath, fileMeta);
+                        }
                     }
                 } else {
                     long localVersion = lruCache.getFileVersion(path);
@@ -169,7 +184,14 @@ public class Proxy {
 
             /* Once updated, focus on local cache. */
             CacheBlock cacheBlock = lruCache.get(path);
-            File fileLocal = cacheBlock.getFile();
+            File fileLocal;
+            if (!fileMeta.isDirectory()) {
+                fileLocal = cacheBlock.getFile();
+            } else {
+                fileLocal = new File(cachePath);
+            }
+
+            String openOption = "";
             lruCache.setOpenStatus(path, true);
             try {
                 switch (o) {
@@ -193,6 +215,12 @@ public class Proxy {
                     default:
                         return Errors.EINVAL;
                 }
+//                currFd = fetchFd();
+//                if (!openOption.equals("")) {
+//                    fdObjectMap.put(currFd, new FdObject(cacheRoot, path, openOption));
+//                } else {
+//                    fdObjectMap.put(currFd, new FdObject(path));
+//                }
             } catch (FileNotFoundException e) {
                 e.printStackTrace(System.err);
                 System.err.println("Error: ENOENT2");
@@ -405,6 +433,7 @@ public class Proxy {
         int port = Integer.parseInt(args[1]);
         cacheRoot = args[2] + "/";
         cacheSize = Integer.parseInt(args[3]);
+        System.err.println("[ Cache size: " + cacheSize + " ]");
 
         // Initialize cache
         lruCache = new LRUCache(cacheSize, cacheRoot);

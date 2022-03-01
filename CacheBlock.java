@@ -1,5 +1,9 @@
 import java.io.File;
 import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
+
+import static java.nio.file.StandardCopyOption.REPLACE_EXISTING;
 
 public class CacheBlock {
     /** Relative path of cached file */
@@ -35,6 +39,28 @@ public class CacheBlock {
         }
     }
 
+    /**
+     * Make a write copy of the original file into the cache, not linking it into the
+     * double linked list. Write copy's life span is from open() to close().
+     * @param cachePath cache directory + writeCopyPath
+     * @param origPath cache directory + original relative path
+     * @param writeCopyPath relative write copy path
+     */
+    public CacheBlock(String cachePath, String origPath, String writeCopyPath) {
+        this.path = writeCopyPath;
+        this.version = -1;
+        this.file = new File(cachePath);
+        this.isOpen = true;
+        this.isDirty = false;
+        File origFile = new File(origPath);
+        try {
+            Files.copy(origFile.toPath(), file.toPath(), REPLACE_EXISTING);
+            System.err.println("[ Write Copy created @: " + cachePath + " ]");
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+    }
+
     public long getVersion() {
         return version;
     }
@@ -57,6 +83,10 @@ public class CacheBlock {
 
     public File getFile() {
         return file;
+    }
+
+    public long getFileSize() {
+        return file.length();
     }
 
     /**

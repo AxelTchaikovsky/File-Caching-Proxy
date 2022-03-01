@@ -4,15 +4,16 @@ import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 
 public class LRUCache {
-    private final int cacheSize;
+    private final int cacheCapacity;
+    private int currSize = 0;
     private final String cacheRoot;
     private final CacheBlock head;
     private final CacheBlock tail;
     /** Maps relative path to cache block */
     private final Map<String, CacheBlock> cacheBlockMap;
 
-    public LRUCache(int cacheSize, String cacheRoot) {
-        this.cacheSize = cacheSize;
+    public LRUCache(int cacheCapacity, String cacheRoot) {
+        this.cacheCapacity = cacheCapacity;
         this.cacheRoot = cacheRoot;
         this.head = new CacheBlock();
         this.tail = new CacheBlock();
@@ -21,6 +22,17 @@ public class LRUCache {
         tail.prev = head;
         tail.next = null;
         cacheBlockMap = new ConcurrentHashMap<>();
+    }
+
+    public synchronized void putWriteCopy(String path, int code) {
+        String writeCopyPath = path + "_write_" + code;
+        String origPath = cacheRoot + path;
+        String cachePath = cacheRoot + writeCopyPath;
+        // Creates write copy in cache dir but not put it in double linked list.
+        CacheBlock cacheBlock = new CacheBlock(cachePath, origPath, writeCopyPath);
+        cacheBlockMap.put(writeCopyPath, cacheBlock);
+        currSize += cacheBlock.getFileSize();
+        sizeControl();
     }
 
     /**
@@ -33,13 +45,20 @@ public class LRUCache {
         String cachePath = cacheRoot + path;
         CacheBlock cacheBlock = new CacheBlock(cachePath, path, version);
         cacheBlockMap.put(path, cacheBlock);
+        currSize += cacheBlock.getFileSize();
         addBlock(cacheBlock);
-        if (cacheBlockMap.size() > cacheSize) {
+        sizeControl();
+    }
+
+    private void sizeControl() {
+        while (currSize > cacheCapacity) {
             CacheBlock oldBlock = removeTail();
             cacheBlockMap.remove(oldBlock.getPath());
+            currSize -= oldBlock.getFileSize();
             boolean tmp = (oldBlock.deleteFile());
             assert (tmp);
         }
+        System.err.println("[ Size control done, cache usage: " + currSize + "/" + cacheCapacity + " ]");
     }
 
     public CacheBlock get(String path) {
