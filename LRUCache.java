@@ -1,7 +1,10 @@
+import java.io.File;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
+
+import static java.nio.file.StandardCopyOption.REPLACE_EXISTING;
 
 public class LRUCache {
     private final int cacheCapacity;
@@ -24,20 +27,19 @@ public class LRUCache {
         cacheBlockMap = new ConcurrentHashMap<>();
     }
 
-    public synchronized void putWriteCopy(String path, int code) {
+    public synchronized String putWriteCopy(String path, int code) {
         String writeCopyPath = path + "_write_" + code;
-        String origPath = cacheRoot + path;
-        String cachePath = cacheRoot + writeCopyPath;
         // Creates write copy in cache dir but not put it in double linked list.
-        CacheBlock cacheBlock = new CacheBlock(cachePath, origPath, writeCopyPath);
+        CacheBlock cacheBlock = new CacheBlock(cacheRoot, path, writeCopyPath);
         cacheBlockMap.put(writeCopyPath, cacheBlock);
         currSize += cacheBlock.getFileSize();
         sizeControl();
+        return writeCopyPath;
     }
 
     /**
      * Put a new cached block into lru cache, if the file does not exist, create a
-     * new empty file.
+     * new empty file. Set new file to open status.
      * @param path relative path
      * @param version current version
      */
@@ -47,12 +49,17 @@ public class LRUCache {
         cacheBlockMap.put(path, cacheBlock);
         currSize += cacheBlock.getFileSize();
         addBlock(cacheBlock);
+        setOpenStatus(path, true);
         sizeControl();
     }
 
     private void sizeControl() {
         while (currSize > cacheCapacity) {
             CacheBlock oldBlock = removeTail();
+            if (oldBlock == null) {
+                System.err.println(" Can evict nothing. ");
+                break;
+            }
             cacheBlockMap.remove(oldBlock.getPath());
             currSize -= oldBlock.getFileSize();
             boolean tmp = (oldBlock.deleteFile());
@@ -135,6 +142,39 @@ public class LRUCache {
         cacheBlockMap.get(path).setDirty(isDirty);
     }
 
+    /**
+     * Get the original path of a write copy, without updating the LRU order.
+     * @param path relative path of a write copy
+     * @return original relative path of a write copy
+     */
+    public String getOrigPath(String path) {
+        return cacheBlockMap.get(path).getOrigPath();
+    }
+
+    /**
+     * Write the write copy file back to the original file, and delete the write copy
+     * from cache.
+     * @param path relative write copy path
+     */
+    public void garbgeCollect(String path) {
+        if (cacheBlockMap.containsKey(path)) {
+            var obsoleteWrite = cacheBlockMap.get(path);
+            if (obsoleteWrite.prev == null && obsoleteWrite.next == null) {
+                File origFile = cacheBlockMap.get(getOrigPath(path)).getFile();
+                File writeCopyFile = cacheBlockMap.get(path).getFile();
+                try {
+                    Files.copy(writeCopyFile.toPath(), origFile.toPath(), REPLACE_EXISTING);
+                } catch (IOException e) {
+                    e.printStackTrace(System.err);
+                }
+                currSize -= writeCopyFile.length();
+                cacheBlockMap.remove(path);
+                System.err.println("[ Delete write copy: " + writeCopyFile.getAbsolutePath() + " ]");
+                writeCopyFile.delete();
+            }
+        }
+    }
+
     public boolean contains(String path) {
         return cacheBlockMap.containsKey(path);
     }
@@ -147,7 +187,7 @@ public class LRUCache {
     }
 
     private void removeBlock(CacheBlock cacheBlock) {
-        if (cacheBlock == null) {
+        if (cacheBlock == null || cacheBlock == head) {
             return;
         }
         cacheBlock.prev.next = cacheBlock.next;
@@ -171,7 +211,7 @@ public class LRUCache {
             cacheBlock = cacheBlock.prev;
         }
         removeBlock(cacheBlock);
-        if (cacheBlock == null) {
+        if (cacheBlock == null || cacheBlock == head) {
             System.err.println("[ Nothing evictable, all files open. ]");
             return null;
         }

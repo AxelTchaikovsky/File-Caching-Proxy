@@ -192,35 +192,35 @@ public class Proxy {
             }
 
             String openOption = "";
-            lruCache.setOpenStatus(path, true);
             try {
-                switch (o) {
-                    case READ:
-                        currFd = fetchFd();
-                        if (!fileLocal.isDirectory()) {
-                            fdObjectMap.put(currFd, new FdObject(cacheRoot, path, "r"));
-                        } else {
-                            fdObjectMap.put(currFd, new FdObject(path));
-                        }
-                        break;
-                    case WRITE:
-                        currFd = fetchFd();
-                        fdObjectMap.put(currFd, new FdObject(cacheRoot, path, "w"));
-                        break;
-                    case CREATE:
-                    case CREATE_NEW:
-                        currFd = fetchFd();
-                        fdObjectMap.put(currFd, new FdObject(cacheRoot, path, "rw"));
-                        break;
-                    default:
-                        return Errors.EINVAL;
+                if (o == OpenOption.READ) {
+                    if (!fileLocal.isDirectory()) {
+                        openOption = "r";
+                    }
+                } else if (o == OpenOption.WRITE) {
+                    openOption = "w";
+                } else if (o == OpenOption.CREATE || o == OpenOption.CREATE_NEW) {
+                    openOption = "rw";
+                } else {
+                    return Errors.EINVAL;
                 }
-//                currFd = fetchFd();
-//                if (!openOption.equals("")) {
-//                    fdObjectMap.put(currFd, new FdObject(cacheRoot, path, openOption));
-//                } else {
-//                    fdObjectMap.put(currFd, new FdObject(path));
-//                }
+
+                currFd = fetchFd();
+
+                if (openOption.equals("")) {
+                    fdObjectMap.put(currFd, new FdObject(path));
+                } else if (openOption.contains("w")) {
+                    /*
+                     * If current session have "write" permission:
+                     * 1. Make new file: write copy in cache
+                     * 2. Put the fd -> write copy RAF connection into fd object map
+                     */
+                    var writeCopyPath = lruCache.putWriteCopy(path, currFd);
+                    fdObjectMap.put(currFd, new FdObject(cacheRoot, writeCopyPath, openOption));
+                } else {
+                    // Read only situation
+                    fdObjectMap.put(currFd, new FdObject(cacheRoot, path, openOption));
+                }
             } catch (FileNotFoundException e) {
                 e.printStackTrace(System.err);
                 System.err.println("Error: ENOENT2");
@@ -249,7 +249,7 @@ public class Proxy {
              */
             String path = fdObjectMap.get(fd).getPath();
             fdObjectMap.get(fd).closeRAF();
-            lruCache.setOpenStatus(path, false);
+            lruCache.setOpenStatus(lruCache.getOrigPath(path), false);
             try {
                 /* If path marked dirty cache, then write back to server. */
                 if (lruCache.isFileDirty(path)) {
@@ -262,22 +262,24 @@ public class Proxy {
                     while (offset < randomAccessFile.length() - MAX_CHUNK_SIZE) {
                         randomAccessFile.seek(offset);
                         randomAccessFile.read(buf);
-                        server.writeFile(path, buf, offset);
+                        server.writeFile(lruCache.getOrigPath(path), buf, offset);
                         offset += MAX_CHUNK_SIZE;
                     }
                     buf = new byte[(int)(randomAccessFile.length() - offset)];
                     System.err.println("[ buf:" + buf.length + " ]");
                     randomAccessFile.seek(offset);
                     randomAccessFile.read(buf);
-                    long newVersion = server.writeFile(path, buf, offset);
+                    long newVersion = server.writeFile(lruCache.getOrigPath(path), buf, offset);
                     // TODO: Maybe we do not need synchronized here, close() is already synchronized
                     synchronized (versionLock) {
-                        lruCache.setFileVersion(path, newVersion);
-                        System.err.println("[ Server distributed " + path + " version: " + newVersion + " ]");
+                        lruCache.setFileVersion(lruCache.getOrigPath(path), newVersion);
+                        System.err.println("[ Server distributed " + lruCache.getOrigPath(path) + " version: " + newVersion + " ]");
                     }
-                    synchronized (dirtLock) {
-                        lruCache.setDirtyStatus(path, false);
-                    }
+                    lruCache.garbgeCollect(path);
+                    // TODO: Maybe this is not needed because all dirty bits will go to the write copy
+//                    synchronized (dirtLock) {
+//                        lruCache.setDirtyStatus(lruCache.getOrigPath(path), false);
+//                    }
                 }
             } catch (IOException e) {
                 e.printStackTrace();

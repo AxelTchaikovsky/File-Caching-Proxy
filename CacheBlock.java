@@ -16,6 +16,8 @@ public class CacheBlock {
     private boolean isOpen;
     /** Version number */
     private long version;
+    /** Original path name */
+    private String origPath;
     public CacheBlock prev;
     public CacheBlock next;
 
@@ -27,6 +29,7 @@ public class CacheBlock {
      * @param version current version number
      */
     public CacheBlock(String cachePath, String path, long version) {
+        this.origPath = path;
         this.path = path;
         this.version = version;
         this.file = new File(cachePath);
@@ -34,6 +37,7 @@ public class CacheBlock {
         this.isDirty = false;
         try {
             file.createNewFile();
+            System.err.println("[ Empty file: " + file.getAbsolutePath() + " created. ]");
         } catch (IOException e) {
             e.printStackTrace();
         }
@@ -42,18 +46,21 @@ public class CacheBlock {
     /**
      * Make a write copy of the original file into the cache, not linking it into the
      * double linked list. Write copy's life span is from open() to close().
-     * @param cachePath cache directory + writeCopyPath
-     * @param origPath cache directory + original relative path
+     * @param cacheRoot cache directory + writeCopyPath
+     * @param origPath original relative path
      * @param writeCopyPath relative write copy path
      */
-    public CacheBlock(String cachePath, String origPath, String writeCopyPath) {
+    public CacheBlock(String cacheRoot, String origPath, String writeCopyPath) {
+        this.origPath = origPath;
         this.path = writeCopyPath;
         this.version = -1;
+        var cachePath = cacheRoot + writeCopyPath;
         this.file = new File(cachePath);
         this.isOpen = true;
         this.isDirty = false;
-        File origFile = new File(origPath);
+        File origFile = new File(cacheRoot + origPath);
         try {
+            System.err.println(" Copy from [ " + origFile.getAbsolutePath() + " ] to [ " + file.getAbsolutePath() + " ]");
             Files.copy(origFile.toPath(), file.toPath(), REPLACE_EXISTING);
             System.err.println("[ Write Copy created @: " + cachePath + " ]");
         } catch (IOException e) {
@@ -87,6 +94,10 @@ public class CacheBlock {
 
     public long getFileSize() {
         return file.length();
+    }
+
+    public String getOrigPath() {
+        return origPath;
     }
 
     /**
