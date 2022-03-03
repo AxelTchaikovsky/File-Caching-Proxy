@@ -38,6 +38,7 @@ public class CacheBlock {
         this.isOpen = false;
         this.isDirty = false;
         this.isValid = true;
+        this.readCnt = 0;
         try {
             file.createNewFile();
             System.err.println("[ Empty file: " + file.getAbsolutePath() + " created. ]");
@@ -62,6 +63,7 @@ public class CacheBlock {
         this.isOpen = true;
         this.isDirty = false;
         this.isValid = true;
+        this.readCnt = 0;
         File origFile = new File(cacheRoot + origPath + "_" + version);
         try {
             System.err.println(" Copy from [ " + origFile.getAbsolutePath() + " ] to [ " + file.getAbsolutePath() + " ]");
@@ -113,7 +115,8 @@ public class CacheBlock {
     }
 
     public boolean isOpen() {
-        return isOpen;
+        System.err.println(readCnt + " clients opening the file. ");
+        return readCnt > 0;
     }
 
     public synchronized void P() {

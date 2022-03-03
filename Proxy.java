@@ -24,7 +24,7 @@ public class Proxy {
         private final Map<Integer, FdObject> fdObjectMap = new ConcurrentHashMap<>();
         /** A thread-safe relative path to if-cache-dirty map */
         private final Map<String, Boolean> pathDirty = new ConcurrentHashMap<>();
-        private static final int MAX_CHUNK_SIZE = (int) 1e6;
+        private static final int MAX_CHUNK_SIZE = 64000;
 
         /**
          * Download file from server, if file too big, get file by chunks. In the meantime,
