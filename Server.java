@@ -136,7 +136,7 @@ public class Server extends UnicastRemoteObject implements RemoteFileHandler {
         String absPath = root + path;
         if (!Files.exists(Paths.get(absPath))) {
             System.err.println("[ File " + absPath + " does not exist. ]");
-            return -1L;
+            return 0L;
         }
         versionMap.putIfAbsent(absPath, 0L);
         return versionMap.get(absPath);

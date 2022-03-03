@@ -63,11 +63,12 @@ public class LRUCache {
      * @param origPath relative path on server
      * @param version the newest version for stale check
      */
-    private void setInvalid(String origPath, long version) {
+    public void setInvalid(String origPath, long version) {
         // Set previous version invalid
         if (pathVersion.containsKey(origPath) && pathVersion.get(origPath) < version) {
-            cacheBlockMap.get(
-                    CacheBlock.genSuffixPath(origPath, pathVersion.get(origPath))).setValid(false);
+            String stalePath = CacheBlock.genSuffixPath(origPath, pathVersion.get(origPath));
+            cacheBlockMap.get(stalePath).setValid(false);
+            garbageCollectStaleVersion(stalePath);
         }
     }
 
@@ -104,13 +105,17 @@ public class LRUCache {
      * @throws IOException when <code>deleteIfExists</code> fails
      */
     public void unlinkBlock(String path) throws IOException {
-        String suffixPath = CacheBlock.genSuffixPath(path, pathVersion.remove(path));
-        if (cacheBlockMap.containsKey(suffixPath)) {
-            CacheBlock cacheBlock = cacheBlockMap.remove(suffixPath);
-            // Remove from double linked list
-            removeBlock(cacheBlock);
-            Files.deleteIfExists(cacheBlock.getFile().toPath());
+        if (!pathVersion.containsKey(path)) {
+            return;
         }
+        String suffixPath = CacheBlock.genSuffixPath(path, pathVersion.get(path));
+        setInvalid(path, Integer.MAX_VALUE);
+//        if (cacheBlockMap.containsKey(suffixPath)) {
+//            CacheBlock cacheBlock = cacheBlockMap.remove(suffixPath);
+//            // Remove from double linked list
+//            removeBlock(cacheBlock);
+//            Files.deleteIfExists(cacheBlock.getFile().toPath());
+//        }
     }
 
     /**
@@ -320,6 +325,14 @@ public class LRUCache {
 
     public String getCacheRoot() {
         return  cacheRoot;
+    }
+
+    public void printCache() {
+        CacheBlock cacheBlock = head.next;
+        while (cacheBlock != tail) {
+            System.err.println(cacheBlock.getSuffixPath() + "->");
+            cacheBlock = cacheBlock.next;
+        }
     }
 
 }

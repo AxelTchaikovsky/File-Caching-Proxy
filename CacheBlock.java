@@ -152,5 +152,7 @@ public class CacheBlock {
         System.err.println("New file exists: " + newFile.exists());
         file.delete();
         file = newFile;
+        suffixPath = file.getName();
+        System.err.println("filename: " + file.getName());
     }
 }

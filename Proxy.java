@@ -306,6 +306,7 @@ public class Proxy {
                 e.printStackTrace();
             }
             fdObjectMap.remove(fd);
+            lruCache.printCache();
             return 0;
         }
 
