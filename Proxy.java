@@ -15,8 +15,6 @@ public class Proxy {
     private static RemoteFileHandler server;
     private static LRUCache lruCache;
     private static final Object versionLock = new Object();
-    /** A thread-safe relative path to version map */
-    private static final Map<String, Long> pathVersion = new ConcurrentHashMap<>();
 
     private static class FileHandler implements FileHandling {
         private final Object dirtLock = new Object();
@@ -33,7 +31,6 @@ public class Proxy {
          */
         private synchronized void getFileFromServer(String path, FileMeta fileMeta) {
             System.err.println("[ Download file from server to cache ]");
-            RandomAccessFile randomAccessFile;
             try {
                 if (!fileMeta.exists()) {
                     System.err.println("[ File doesn't exist in server ]");
@@ -140,52 +137,9 @@ public class Proxy {
 
             try {
                 if (!lruCache.contains(path)) {
-                    System.err.println("Local file: " + path + " doesn't exist.");
-                    if (!fileMeta.exists()) {
-                        // Create empty file when file is not on server
-                        if (!server.creatFile(path)) {
-                            System.err.println(path + " failed to be created in Server. ");
-                        }
-                        // Creat empty file locally
-                        lruCache.put(path, 0L);
-                    } else {
-                        File file = new File(cachePath);
-                        File parentDirectory = file.getParentFile();
-
-                        while (parentDirectory != null && !parentDirectory.exists()) {
-                            parentDirectory.mkdir();
-                            parentDirectory = parentDirectory.getParentFile();
-                        }
-
-                        if (fileMeta.isDirectory()) {
-                            File dirFile = new File(cachePath);
-                            if (!dirFile.mkdir()) {
-                                System.err.println("Error creating local directory. 1");
-                            }
-                        } else {
-                            // If remote file exists then fetch from server, put into cache
-                            // and update version number
-                            getFileFromServer(path, fileMeta);
-                        }
-                    }
+                    renderCacheMiss(path, fileMeta, cachePath);
                 } else {
-                    long localVersion = lruCache.getFileVersion(path);
-                    long remoteVersion = fileMeta.getVersion();
-                    System.err.println("[ Local version: " + localVersion + " ]");
-                    System.err.println("[ Remote version: " + remoteVersion + " ]");
-                    if (localVersion < remoteVersion) {
-                        // If local cached version is stale, fetch file from server
-                        System.err.println("Updating local file/directory ...");
-                        if (fileMeta.isDirectory()) {
-                            if (!new File(cachePath).mkdir()) {
-                                System.err.println("Error creating local directory. ");
-                            }
-                        } else {
-                            getFileFromServer(path, fileMeta);
-                        }
-                    } else {
-                        System.err.println(path + " already up to date. ");
-                    }
+                    renderCacheHit(path, fileMeta, cachePath);
                 }
             } catch (IOException e) {
                 e.printStackTrace(System.err);
@@ -216,23 +170,7 @@ public class Proxy {
                     return Errors.EINVAL;
                 }
 
-                currFd = fetchFd();
-
-                if (openOption.equals("")) {
-                    fdObjectMap.put(currFd, new FdObject(path));
-                } else if (openOption.contains("w")) {
-                    /*
-                     * If current session have "write" permission:
-                     * 1. Make new file: write copy in cache
-                     * 2. Put the fd -> write copy RAF connection into fd object map
-                     */
-                    var writeCopyPath = lruCache.putWriteCopy(path, currFd, fileMeta.getVersion());
-                    fdObjectMap.put(currFd, new FdObject(cacheRoot, writeCopyPath, openOption));
-                } else {
-                    // Read only situation
-                    String readCopyPath = path + "_" + fileMeta.getVersion();
-                    fdObjectMap.put(currFd, new FdObject(cacheRoot, readCopyPath, openOption));
-                }
+                currFd = linkReadWriteCopy(path, fileMeta, cacheRoot, openOption);
             } catch (FileNotFoundException e) {
                 e.printStackTrace(System.err);
                 System.err.println("Error: ENOENT2");
@@ -241,6 +179,96 @@ public class Proxy {
                 e.printStackTrace(System.err);
                 System.err.println("Error: EPERM");
                 return Errors.EPERM;
+            }
+            return currFd;
+        }
+
+        /**
+         * If the desired file is not cached:
+         * 1. If non-existent on server, create new empty file both remote and locally.
+         * 2. If file exists on server, locally create all missing parent directories,
+         * get file from server.
+         * @param path relative path on server
+         * @param fileMeta Meta information about file on server
+         * @param cachePath local cachePath, without suffix
+         * @throws IOException when file IO fails
+         */
+        private void renderCacheMiss(String path, FileMeta fileMeta, String cachePath) throws IOException {
+            System.err.println("Local file: " + path + " doesn't exist.");
+            if (!fileMeta.exists()) {
+                // Create empty file when file is not on server
+                if (!server.creatFile(path)) {
+                    System.err.println(path + " failed to be created in Server. ");
+                }
+                // Creat empty file locally
+                lruCache.put(path, 0L);
+            } else {
+                File file = new File(cachePath);
+                File parentDirectory = file.getParentFile();
+
+                while (parentDirectory != null && !parentDirectory.exists()) {
+                    parentDirectory.mkdir();
+                    parentDirectory = parentDirectory.getParentFile();
+                }
+
+                if (fileMeta.isDirectory()) {
+                    File dirFile = new File(cachePath);
+                    if (!dirFile.mkdir()) {
+                        System.err.println("Error creating local directory. 1");
+                    }
+                } else {
+                    // If remote file exists then fetch from server, put into cache
+                    // and update version number
+                    getFileFromServer(path, fileMeta);
+                }
+            }
+        }
+
+        /**
+         * On a cache hit,
+         * check if local cache copy is stale, if stale, fetch from server.
+         * @param path relative original path on server
+         * @param fileMeta Meta information about file on server
+         * @param cachePath absolute cache path without suffix
+         */
+        private void renderCacheHit(String path, FileMeta fileMeta, String cachePath) {
+            long localVersion = lruCache.getFileVersion(path);
+            long remoteVersion = fileMeta.getVersion();
+            System.err.println("[ Local version: " + localVersion + " ]");
+            System.err.println("[ Remote version: " + remoteVersion + " ]");
+            if (localVersion < remoteVersion) {
+                // If local cached version is stale, fetch file from server
+                System.err.println("Updating local file/directory ...");
+                if (fileMeta.isDirectory()) {
+                    if (!new File(cachePath).mkdir()) {
+                        System.err.println("Error creating local directory. ");
+                    }
+                } else {
+                    getFileFromServer(path, fileMeta);
+                }
+            } else {
+                System.err.println(path + " already up to date. ");
+            }
+        }
+
+        private Integer linkReadWriteCopy(String path, FileMeta fileMeta, String cacheRoot, String openOption) throws FileNotFoundException {
+            Integer currFd;
+            currFd = fetchFd();
+
+            if (openOption.equals("")) {
+                fdObjectMap.put(currFd, new FdObject(path));
+            } else if (openOption.contains("w")) {
+                /*
+                 * If current session have "write" permission:
+                 * 1. Make new file: write copy in cache
+                 * 2. Put the fd -> write copy RAF connection into fd object map
+                 */
+                var writeCopyPath = lruCache.putWriteCopy(path, currFd, fileMeta.getVersion());
+                fdObjectMap.put(currFd, new FdObject(cacheRoot, writeCopyPath, openOption));
+            } else {
+                // Read only situation
+                String readCopyPath = path + "_" + fileMeta.getVersion();
+                fdObjectMap.put(currFd, new FdObject(cacheRoot, readCopyPath, openOption));
             }
             return currFd;
         }
@@ -296,10 +324,6 @@ public class Proxy {
                             System.err.println("[ Server distributed " + lruCache.getOrigPath(path) + " version: " + newVersion + " ]");
                         }
                         lruCache.garbageCollectWriteCopy(path);
-                        // TODO: Maybe this is not needed because all dirty bits will go to the write copy
-//                    synchronized (dirtLock) {
-//                        lruCache.setDirtyStatus(lruCache.getOrigPath(path), false);
-//                    }
                     }
                 }
             } catch (IOException e) {
