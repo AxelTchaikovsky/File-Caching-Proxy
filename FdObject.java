@@ -8,7 +8,7 @@ import java.io.RandomAccessFile;
  * and is unique to each open-close session.
  */
 public class FdObject {
-    /** Relative path to file */
+    /** Relative path to RAF (Have suffix) */
     private String path;
     /** Random access file related to the session */
     private RandomAccessFile randomAccessFile;

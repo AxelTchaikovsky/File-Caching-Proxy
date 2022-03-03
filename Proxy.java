@@ -2,20 +2,16 @@
 
 import java.io.*;
 import java.nio.file.FileSystems;
-import java.nio.file.Files;
 import java.rmi.Naming;
 import java.rmi.NotBoundException;
 import java.rmi.RemoteException;
-import java.util.Arrays;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 
 public class Proxy {
 
     private static int fd = 9;
-    private static int cacheSize;
     private static final int ARG_LEN = 4;
-    private static String cacheRoot = "cache/default/";
     private static RemoteFileHandler server;
     private static LRUCache lruCache;
     private static final Object versionLock = new Object();
@@ -34,34 +30,17 @@ public class Proxy {
          * Download file from server, if file too big, get file by chunks. In the meantime,
          * sync the version number with server.
          * @param path relative path to file
-         * @param cachePath absolute path on client's cache
          */
-        private synchronized void getFileFromServer(String path, String cachePath, FileMeta fileMeta) {
+        private synchronized void getFileFromServer(String path, FileMeta fileMeta) {
             System.err.println("[ Download file from server to cache ]");
-            long offset = 0;
             RandomAccessFile randomAccessFile;
             try {
                 if (!fileMeta.exists()) {
                     System.err.println("[ File doesn't exist in server ]");
                     return;
                 }
-                randomAccessFile = new RandomAccessFile(cachePath, "rw");
-                RawFile rawFile;
-                while (offset < fileMeta.getLength() - MAX_CHUNK_SIZE) {
-                    rawFile = server.getFile(path, MAX_CHUNK_SIZE, offset);
-//                    System.err.println("[ Raw file content: " + Arrays.toString(rawFile.getBuf()) + " ]");
-                    System.err.println("[ Raw file size: " + rawFile.getBuf().length + " ]");
-
-                    offset += rawFile.length();
-                    randomAccessFile.write(rawFile.getBuf());
-                    randomAccessFile.seek(offset);
-                }
-                rawFile = server.getFile(path, (int) (fileMeta.getLength() - offset), offset);
-                System.err.println(" "+offset+" "+fileMeta.getLength());
-//                System.err.println("[ Raw file content: " + Arrays.toString(rawFile.getBuf()) + " ]");
-                System.err.println("[ Raw file size: " + rawFile.getBuf().length + " ]");
-                randomAccessFile.write(rawFile.getBuf());
-                randomAccessFile.close();
+                String cachePath = lruCache.getCacheRoot() + path + "_" + fileMeta.getVersion();
+                writeToLocal(path, fileMeta, cachePath);
                 synchronized (versionLock) {
                     lruCache.put(path, fileMeta.getVersion());
                     System.err.println("[ Updated current version: " + fileMeta.getVersion() + " ]");
@@ -69,6 +48,35 @@ public class Proxy {
             } catch (IOException e) {
                 e.printStackTrace();
             }
+        }
+
+        /**
+         * Write to local file. Using chunking.
+         * @param path relative path on server
+         * @param fileMeta meta information on server file
+         * @param cachePath the absolute cache path with version suffix
+         * @throws IOException when write error occurs
+         */
+        private void writeToLocal(String path, FileMeta fileMeta, String cachePath) throws IOException {
+            long offset = 0;
+            RandomAccessFile randomAccessFile;
+            randomAccessFile = new RandomAccessFile(cachePath, "rw");
+            RawFile rawFile;
+            while (offset < fileMeta.getLength() - MAX_CHUNK_SIZE) {
+                rawFile = server.getFile(path, MAX_CHUNK_SIZE, offset);
+//                    System.err.println("[ Raw file content: " + Arrays.toString(rawFile.getBuf()) + " ]");
+                System.err.println("[ Raw file size: " + rawFile.getBuf().length + " ]");
+
+                offset += rawFile.length();
+                randomAccessFile.write(rawFile.getBuf());
+                randomAccessFile.seek(offset);
+            }
+            rawFile = server.getFile(path, (int) (fileMeta.getLength() - offset), offset);
+            System.err.println(" "+ offset +" "+ fileMeta.getLength());
+//                System.err.println("[ Raw file content: " + Arrays.toString(rawFile.getBuf()) + " ]");
+            System.err.println("[ Raw file size: " + rawFile.getBuf().length + " ]");
+            randomAccessFile.write(rawFile.getBuf());
+            randomAccessFile.close();
         }
 
         /**
@@ -88,26 +96,27 @@ public class Proxy {
             }
             /*--------------------  DEBUG PRINT MESSAGE E  --------------------*/
 
-            Integer currFd;
-            path = normalize(path);
-            cacheRoot = normalize(cacheRoot) + "/";
-            String cachePath = normalize(cacheRoot + path);
-            System.err.println("[ Cache root: " + cacheRoot + " ]");
-            System.err.println("[ File path: " + cachePath  + " ]");
-
-            // Check file permission, no file outside cache root directory can be read
-            if (!cachePath.contains(cacheRoot)) {
-                return Errors.EPERM;
-            }
-
             FileMeta fileMeta = new FileMeta();
-
             // Check to server every time we call open()
             try {
                 fileMeta = server.getFileMeta(path);
             } catch (RemoteException e) {
                 e.printStackTrace();
             }
+
+            Integer currFd;
+            path = normalize(path);
+            String cacheRoot = lruCache.getCacheRoot();
+            String normCacheRoot = normalize(cacheRoot);
+            String cachePath = normalize(cacheRoot + path);
+            System.err.println("[ Cache root: " + cacheRoot + " ]");
+            System.err.println("[ File path: " + cachePath  + " ]");
+
+            // Check file permission, no file outside cache root directory can be read
+            if (!cachePath.contains(normCacheRoot)) {
+                return Errors.EPERM;
+            }
+
 
             if (fileMeta.exists() && o == OpenOption.CREATE_NEW) return Errors.EEXIST;
             if (!fileMeta.exists()) {
@@ -156,7 +165,7 @@ public class Proxy {
                         } else {
                             // If remote file exists then fetch from server, put into cache
                             // and update version number
-                            getFileFromServer(path, cachePath, fileMeta);
+                            getFileFromServer(path, fileMeta);
                         }
                     }
                 } else {
@@ -172,7 +181,7 @@ public class Proxy {
                                 System.err.println("Error creating local directory. ");
                             }
                         } else {
-                            getFileFromServer(path, cachePath, fileMeta);
+                            getFileFromServer(path, fileMeta);
                         }
                     } else {
                         System.err.println(path + " already up to date. ");
@@ -183,7 +192,9 @@ public class Proxy {
             }
 
             /* Once updated, focus on local cache. */
-            CacheBlock cacheBlock = lruCache.get(path);
+            CacheBlock cacheBlock = lruCache.get(path + "_" + fileMeta.getVersion());
+            // TODO: Maybe in the wrong place
+            lruCache.P(lruCache.getSuffixPath(path));
             File fileLocal;
             if (!fileMeta.isDirectory()) {
                 fileLocal = cacheBlock.getFile();
@@ -215,11 +226,12 @@ public class Proxy {
                      * 1. Make new file: write copy in cache
                      * 2. Put the fd -> write copy RAF connection into fd object map
                      */
-                    var writeCopyPath = lruCache.putWriteCopy(path, currFd);
+                    var writeCopyPath = lruCache.putWriteCopy(path, currFd, fileMeta.getVersion());
                     fdObjectMap.put(currFd, new FdObject(cacheRoot, writeCopyPath, openOption));
                 } else {
                     // Read only situation
-                    fdObjectMap.put(currFd, new FdObject(cacheRoot, path, openOption));
+                    String readCopyPath = path + "_" + fileMeta.getVersion();
+                    fdObjectMap.put(currFd, new FdObject(cacheRoot, readCopyPath, openOption));
                 }
             } catch (FileNotFoundException e) {
                 e.printStackTrace(System.err);
@@ -249,37 +261,46 @@ public class Proxy {
              */
             String path = fdObjectMap.get(fd).getPath();
             fdObjectMap.get(fd).closeRAF();
-            lruCache.setOpenStatus(lruCache.getOrigPath(path), false);
+            if (!lruCache.isFileDirty(path)) {
+                lruCache.get(path);
+                lruCache.V(path);
+            }
+
+            lruCache.garbageCollectStaleVersion(path);
             try {
                 /* If path marked dirty cache, then write back to server. */
                 if (lruCache.isFileDirty(path)) {
-                    /* Upload file from cache to server */
-                    System.err.println("[ Upload file from cache to server ]");
-                    RandomAccessFile randomAccessFile =
-                            new RandomAccessFile(normalize(cacheRoot + path), "r");
-                    long offset = 0;
-                    byte[] buf = new byte[MAX_CHUNK_SIZE];
-                    while (offset < randomAccessFile.length() - MAX_CHUNK_SIZE) {
+                    FileMeta fileMeta = server.getFileMeta(lruCache.getOrigPath(path));
+                    /* If the file in server has not been deleted */
+                    if (fileMeta.exists()) {
+                        /* Upload file from cache to server */
+                        System.err.println("[ Upload file from cache to server ]");
+                        RandomAccessFile randomAccessFile =
+                                new RandomAccessFile(normalize(lruCache.getCacheRoot() + path), "r");
+                        long offset = 0;
+                        byte[] buf = new byte[MAX_CHUNK_SIZE];
+                        while (offset < randomAccessFile.length() - MAX_CHUNK_SIZE) {
+                            randomAccessFile.seek(offset);
+                            randomAccessFile.read(buf);
+                            server.writeFile(lruCache.getOrigPath(path), buf, offset);
+                            offset += MAX_CHUNK_SIZE;
+                        }
+                        buf = new byte[(int)(randomAccessFile.length() - offset)];
+                        System.err.println("[ buf:" + buf.length + " ]");
                         randomAccessFile.seek(offset);
                         randomAccessFile.read(buf);
-                        server.writeFile(lruCache.getOrigPath(path), buf, offset);
-                        offset += MAX_CHUNK_SIZE;
-                    }
-                    buf = new byte[(int)(randomAccessFile.length() - offset)];
-                    System.err.println("[ buf:" + buf.length + " ]");
-                    randomAccessFile.seek(offset);
-                    randomAccessFile.read(buf);
-                    long newVersion = server.writeFile(lruCache.getOrigPath(path), buf, offset);
-                    // TODO: Maybe we do not need synchronized here, close() is already synchronized
-                    synchronized (versionLock) {
-                        lruCache.setFileVersion(lruCache.getOrigPath(path), newVersion);
-                        System.err.println("[ Server distributed " + lruCache.getOrigPath(path) + " version: " + newVersion + " ]");
-                    }
-                    lruCache.garbgeCollect(path);
-                    // TODO: Maybe this is not needed because all dirty bits will go to the write copy
+                        long newVersion = server.writeFile(lruCache.getOrigPath(path), buf, offset);
+                        // TODO: Maybe we do not need synchronized here, close() is already synchronized
+                        synchronized (versionLock) {
+                            lruCache.setFileVersion(lruCache.getOrigPath(path), newVersion);
+                            System.err.println("[ Server distributed " + lruCache.getOrigPath(path) + " version: " + newVersion + " ]");
+                        }
+                        lruCache.garbageCollectWriteCopy(path);
+                        // TODO: Maybe this is not needed because all dirty bits will go to the write copy
 //                    synchronized (dirtLock) {
 //                        lruCache.setDirtyStatus(lruCache.getOrigPath(path), false);
 //                    }
+                    }
                 }
             } catch (IOException e) {
                 e.printStackTrace();
@@ -362,7 +383,7 @@ public class Proxy {
         public int unlink(String path) {
             System.err.println("[ Unlinking path: " + path + " ]");
             path = normalize(path);
-            cacheRoot = normalize(cacheRoot) + "/";
+            String cacheRoot = lruCache.getCacheRoot();
             String cachePath = normalize(cacheRoot + path);
             System.err.println("[ Cache root: " + cacheRoot + " ]");
             System.err.println("[ File path: " + cachePath  + " ]");
@@ -433,8 +454,8 @@ public class Proxy {
 
         String serverIP = args[0];
         int port = Integer.parseInt(args[1]);
-        cacheRoot = args[2] + "/";
-        cacheSize = Integer.parseInt(args[3]);
+        String cacheRoot = args[2] + "/";
+        int cacheSize = Integer.parseInt(args[3]);
         System.err.println("[ Cache size: " + cacheSize + " ]");
 
         // Initialize cache
