@@ -62,7 +62,7 @@ public class Proxy {
             while (offset < fileMeta.getLength() - MAX_CHUNK_SIZE) {
                 rawFile = server.getFile(path, MAX_CHUNK_SIZE, offset);
 //                    System.err.println("[ Raw file content: " + Arrays.toString(rawFile.getBuf()) + " ]");
-                System.err.println("[ Raw file size: " + rawFile.getBuf().length + " ]");
+//                System.err.println("[ Raw file size: " + rawFile.getBuf().length + " ]");
 
                 offset += rawFile.length();
                 randomAccessFile.write(rawFile.getBuf());
@@ -71,7 +71,7 @@ public class Proxy {
             rawFile = server.getFile(path, (int) (fileMeta.getLength() - offset), offset);
             System.err.println(" "+ offset +" "+ fileMeta.getLength());
 //                System.err.println("[ Raw file content: " + Arrays.toString(rawFile.getBuf()) + " ]");
-            System.err.println("[ Raw file size: " + rawFile.getBuf().length + " ]");
+//            System.err.println("[ Raw file size: " + rawFile.getBuf().length + " ]");
             randomAccessFile.write(rawFile.getBuf());
             randomAccessFile.close();
         }

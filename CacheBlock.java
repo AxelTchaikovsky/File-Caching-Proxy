@@ -11,15 +11,13 @@ public class CacheBlock {
     private File file;
     /** Flag indicating if the cache has been changed */
     private boolean isDirty;
-    /** Flag indicating if the file in cache is open by a client */
-    private boolean isOpen;
     /** Indicating if the current version is valid */
     private boolean isValid;
     /** Version number */
     private long version;
     /** Original relative path name */
     private String origPath;
-    private int readCnt;
+    private int refCnt;
     public CacheBlock prev;
     public CacheBlock next;
 
@@ -35,10 +33,9 @@ public class CacheBlock {
         this.suffixPath = genSuffixPath(origPath, version);
         this.version = version;
         this.file = new File(cacheRoot + suffixPath);
-        this.isOpen = false;
         this.isDirty = false;
         this.isValid = true;
-        this.readCnt = 0;
+        this.refCnt = 0;
         try {
             file.createNewFile();
             System.err.println("[ Empty file: " + file.getAbsolutePath() + " created. ]");
@@ -60,10 +57,9 @@ public class CacheBlock {
         this.version = -1;
         var cachePath = cacheRoot + writeCopyPath;
         this.file = new File(cachePath);
-        this.isOpen = true;
         this.isDirty = false;
         this.isValid = true;
-        this.readCnt = 0;
+        this.refCnt = 0;
         File origFile = new File(cacheRoot + origPath + "_" + version);
         try {
             System.err.println(" Copy from [ " + origFile.getAbsolutePath() + " ] to [ " + file.getAbsolutePath() + " ]");
@@ -72,10 +68,6 @@ public class CacheBlock {
         } catch (IOException e) {
             e.printStackTrace();
         }
-    }
-
-    public long getVersion() {
-        return version;
     }
 
     public void setVersion(long version) {
@@ -115,16 +107,16 @@ public class CacheBlock {
     }
 
     public boolean isOpen() {
-        System.err.println(readCnt + " clients opening the file. ");
-        return readCnt > 0;
+        System.err.println(refCnt + " clients opening the file. ");
+        return refCnt > 0;
     }
 
     public synchronized void P() {
-        readCnt++;
+        refCnt++;
     }
 
     public synchronized void V() {
-        readCnt--;
+        refCnt--;
     }
 
 
