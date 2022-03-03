@@ -1,5 +1,8 @@
 import java.io.Serializable;
 
+/**
+ * Server file meta data.
+ */
 public class FileMeta implements Serializable {
     private boolean isDirectory;
     private boolean fileExists;

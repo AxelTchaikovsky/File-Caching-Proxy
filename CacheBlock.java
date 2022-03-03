@@ -17,8 +17,11 @@ public class CacheBlock {
     private long version;
     /** Original relative path name */
     private String origPath;
+    /** A reference counter indicating how many client is opening the file */
     private int refCnt;
+    /** Pointer to previous block */
     public CacheBlock prev;
+    /** Pointer to next block */
     public CacheBlock next;
 
     public CacheBlock() {}
@@ -45,8 +48,9 @@ public class CacheBlock {
     }
 
     /**
-     * Make a write copy of the original file into the cache, not linking it into the
-     * double linked list. Write copy's life span is from open() to close().
+     * Make a write copy of the original file into the cache, not linking it
+     * into the double linked list. Write copy's life span is from open() to
+     * close().
      * @param cacheRoot cache directory + writeCopyPath
      * @param origPath original relative path
      * @param writeCopyPath relative write copy path

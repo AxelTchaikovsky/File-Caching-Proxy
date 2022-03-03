@@ -68,7 +68,9 @@ public class Proxy {
                 randomAccessFile.write(rawFile.getBuf());
                 randomAccessFile.seek(offset);
             }
-            rawFile = server.getFile(path, (int) (fileMeta.getLength() - offset), offset);
+            rawFile = server.getFile(path,
+                    (int) (fileMeta.getLength() - offset),
+                    offset);
             System.err.println(" "+ offset +" "+ fileMeta.getLength());
 //                System.err.println("[ Raw file content: " + Arrays.toString(rawFile.getBuf()) + " ]");
 //            System.err.println("[ Raw file size: " + rawFile.getBuf().length + " ]");
@@ -170,7 +172,10 @@ public class Proxy {
                     return Errors.EINVAL;
                 }
 
-                currFd = linkReadWriteCopy(path, fileMeta, cacheRoot, openOption);
+                currFd = linkReadWriteCopy(path,
+                        fileMeta,
+                        cacheRoot,
+                        openOption);
             } catch (FileNotFoundException e) {
                 e.printStackTrace(System.err);
                 System.err.println("Error: ENOENT2");
@@ -185,15 +190,18 @@ public class Proxy {
 
         /**
          * If the desired file is not cached:
-         * 1. If non-existent on server, create new empty file both remote and locally.
-         * 2. If file exists on server, locally create all missing parent directories,
-         * get file from server.
+         * 1. If non-existent on server, create new empty file both remote and
+         * locally.
+         * 2. If file exists on server, locally create all missing parent
+         * directories, get file from server.
          * @param path relative path on server
          * @param fileMeta Meta information about file on server
          * @param cachePath local cachePath, without suffix
          * @throws IOException when file IO fails
          */
-        private void renderCacheMiss(String path, FileMeta fileMeta, String cachePath) throws IOException {
+        private void renderCacheMiss(String path,
+                                     FileMeta fileMeta,
+                                     String cachePath) throws IOException {
             System.err.println("Local file: " + path + " doesn't exist.");
             if (!fileMeta.exists()) {
                 // Create empty file when file is not on server
@@ -231,7 +239,9 @@ public class Proxy {
          * @param fileMeta Meta information about file on server
          * @param cachePath absolute cache path without suffix
          */
-        private void renderCacheHit(String path, FileMeta fileMeta, String cachePath) {
+        private void renderCacheHit(String path,
+                                    FileMeta fileMeta,
+                                    String cachePath) {
             long localVersion = lruCache.getFileVersion(path);
             long remoteVersion = fileMeta.getVersion();
             System.err.println("[ Local version: " + localVersion + " ]");
@@ -251,7 +261,21 @@ public class Proxy {
             }
         }
 
-        private Integer linkReadWriteCopy(String path, FileMeta fileMeta, String cacheRoot, String openOption) throws FileNotFoundException {
+        /**
+         * Link file descriptor with read copy (at most one for each version),
+         * or write copy (one for each writer), by putting the pair into
+         * hashmap. Responsibility includes creating write copy.
+         * @param path relative path on server
+         * @param fileMeta meta information about file on server
+         * @param cacheRoot local cache root directory
+         * @param openOption permission flag for random access file
+         * @return the file descriptor associated with curr session.
+         * @throws FileNotFoundException
+         */
+        private Integer linkReadWriteCopy(String path,
+                                          FileMeta fileMeta,
+                                          String cacheRoot,
+                                          String openOption) throws FileNotFoundException {
             Integer currFd;
             currFd = fetchFd();
 
@@ -263,16 +287,28 @@ public class Proxy {
                  * 1. Make new file: write copy in cache
                  * 2. Put the fd -> write copy RAF connection into fd object map
                  */
-                var writeCopyPath = lruCache.putWriteCopy(path, currFd, fileMeta.getVersion());
-                fdObjectMap.put(currFd, new FdObject(cacheRoot, writeCopyPath, openOption));
+                var writeCopyPath =
+                        lruCache.putWriteCopy(path, currFd, fileMeta.getVersion());
+                fdObjectMap.put(currFd,
+                        new FdObject(cacheRoot, writeCopyPath, openOption));
             } else {
                 // Read only situation
                 String readCopyPath = path + "_" + fileMeta.getVersion();
-                fdObjectMap.put(currFd, new FdObject(cacheRoot, readCopyPath, openOption));
+                fdObjectMap.put(currFd,
+                        new FdObject(cacheRoot, readCopyPath, openOption));
             }
             return currFd;
         }
 
+        /**
+         * Handle close() RPC call from client. Decrement the reference counter
+         * on the file. On read close: Check if the file is still being open
+         * (referenced). If still open, do nothing. If not begin open and is
+         * invalidated, then do garbage collection,
+         * remove from cache and delete on disk.
+         * @param fd
+         * @return
+         */
         public synchronized int close( int fd ) {
             System.err.println("[ Closing fd: " + fd + " ]");
             /*---------- Errors handling ----------*/
@@ -304,7 +340,9 @@ public class Proxy {
                         /* Upload file from cache to server */
                         System.err.println("[ Upload file from cache to server ]");
                         RandomAccessFile randomAccessFile =
-                                new RandomAccessFile(normalize(lruCache.getCacheRoot() + path), "r");
+                                new RandomAccessFile(
+                                        normalize(lruCache.getCacheRoot() + path),
+                                        "r");
                         long offset = 0;
                         byte[] buf = new byte[MAX_CHUNK_SIZE];
                         while (offset < randomAccessFile.length() - MAX_CHUNK_SIZE) {
@@ -317,11 +355,18 @@ public class Proxy {
                         System.err.println("[ buf:" + buf.length + " ]");
                         randomAccessFile.seek(offset);
                         randomAccessFile.read(buf);
-                        long newVersion = server.writeFile(lruCache.getOrigPath(path), buf, offset);
-                        // TODO: Maybe we do not need synchronized here, close() is already synchronized
+                        long newVersion =
+                                server.writeFile(lruCache.getOrigPath(path),
+                                        buf,
+                                        offset);
                         synchronized (versionLock) {
-                            lruCache.setFileVersion(lruCache.getOrigPath(path), newVersion);
-                            System.err.println("[ Server distributed " + lruCache.getOrigPath(path) + " version: " + newVersion + " ]");
+                            lruCache.setFileVersion(lruCache.getOrigPath(path),
+                                    newVersion);
+                            System.err.println("[ Server distributed "
+                                    + lruCache.getOrigPath(path)
+                                    + " version: "
+                                    + newVersion
+                                    + " ]");
                         }
                         lruCache.garbageCollectWriteCopy(path);
                     }
@@ -349,7 +394,8 @@ public class Proxy {
             try {
                 writeFile.write(buf);
                 synchronized (dirtLock) {
-                    lruCache.setDirtyStatus(fdObjectMap.get(fd).getPath(), true);
+                    lruCache.setDirtyStatus(fdObjectMap.get(fd).getPath(),
+                            true);
                 }
             } catch (IOException e) {
                 e.printStackTrace(System.err);
@@ -359,6 +405,13 @@ public class Proxy {
             return buf.length;
         }
 
+        /**
+         * Read file into buf.
+         * @param fd file descriptor
+         * @param buf buffer for read content
+         * @return the total number of bytes read into the buffer, or 0 if
+         * there is no more data because the end of this file has been reached
+         */
         public long read(int fd, byte[] buf) {
             /*---------- Errors handling ----------*/
             if (!fdObjectMap.containsKey(fd)) return Errors.EBADF;
@@ -376,6 +429,13 @@ public class Proxy {
             }
         }
 
+        /**
+         * Jump to position in file.
+         * @param fd file descriptor
+         * @param pos the offset position, measured in bytes
+         * @param o lseek option flag
+         * @return position
+         */
         public long lseek(int fd, long pos, FileHandling.LseekOption o) {
             /*---------- Errors handling ----------*/
             if (!fdObjectMap.containsKey(fd)) return Errors.EBADF;
@@ -405,6 +465,12 @@ public class Proxy {
             }
         }
 
+        /**
+         * Unlinking a file, if still being open, invalidate it. The file will
+         * be garbage collected if not being open on next close().
+         * @param path relative path on server.
+         * @return 0 for successful invalidation or unlink, -1 for error.
+         */
         public int unlink(String path) {
             System.err.println("[ Unlinking path: " + path + " ]");
             path = normalize(path);
@@ -438,6 +504,9 @@ public class Proxy {
             return 0;
         }
 
+        /**
+         * Clean up after client has finished procedure.
+         */
         public void clientdone() {
             for (int fd : fdObjectMap.keySet()) {
                 RandomAccessFile randomAccessFile = fdObjectMap.get(fd).getRAF();
@@ -456,7 +525,10 @@ public class Proxy {
          * @return Normalized absolute path
          */
         private String normalize(String OrigPath) {
-            return FileSystems.getDefault().getPath(OrigPath).normalize().toString();
+            return FileSystems.getDefault()
+                    .getPath(OrigPath)
+                    .normalize()
+                    .toString();
         }
 
         private synchronized Integer fetchFd() {
@@ -473,7 +545,8 @@ public class Proxy {
 
     public static void main(String[] args) throws IOException {
         if (args.length < ARG_LEN) {
-            System.err.println("Missing arguments: expected 4, got " + args.length + ".");
+            System.err.println(
+                    "Missing arguments: expected 4, got " + args.length + ".");
             return;
         }
 

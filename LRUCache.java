@@ -33,7 +33,10 @@ public class LRUCache {
     public synchronized String putWriteCopy(String path, int code, long version) {
         String writeCopyPath = path + "_write_" + code;
         // Creates write copy in cache dir but not put it in double linked list.
-        CacheBlock cacheBlock = new CacheBlock(cacheRoot, path, writeCopyPath, version);
+        CacheBlock cacheBlock = new CacheBlock(cacheRoot,
+                path,
+                writeCopyPath,
+                version);
         cacheBlockMap.put(writeCopyPath, cacheBlock);
         currSize += cacheBlock.getFileSize();
         sizeControl();
@@ -66,12 +69,18 @@ public class LRUCache {
     public void setInvalid(String origPath, long version) {
         // Set previous version invalid
         if (pathVersion.containsKey(origPath) && pathVersion.get(origPath) < version) {
-            String stalePath = CacheBlock.genSuffixPath(origPath, pathVersion.get(origPath));
+            String stalePath =
+                    CacheBlock.genSuffixPath(origPath, pathVersion.get(origPath));
             cacheBlockMap.get(stalePath).setValid(false);
             garbageCollectStaleVersion(stalePath);
         }
     }
 
+    /**
+     * Control the size of the LRU cache, if over capacity, delete least
+     * recently used blocks that are not open, until current file size sum
+     * is below capacity.
+     */
     private void sizeControl() {
         while (currSize > cacheCapacity) {
             CacheBlock oldBlock = removeTail();
@@ -110,12 +119,6 @@ public class LRUCache {
         }
         String suffixPath = CacheBlock.genSuffixPath(path, pathVersion.get(path));
         setInvalid(path, Integer.MAX_VALUE);
-//        if (cacheBlockMap.containsKey(suffixPath)) {
-//            CacheBlock cacheBlock = cacheBlockMap.remove(suffixPath);
-//            // Remove from double linked list
-//            removeBlock(cacheBlock);
-//            Files.deleteIfExists(cacheBlock.getFile().toPath());
-//        }
     }
 
     /**
@@ -126,17 +129,6 @@ public class LRUCache {
     public long getFileVersion(String path) {
         if (!pathVersion.containsKey(path)) return -1L;
         return pathVersion.get(path);
-    }
-
-    /**
-     * Check if the cache have the most current version
-     * @param path
-     * @param serverVersion
-     * @return
-     */
-    public boolean checkIfStale(String path, long serverVersion) {
-        String suffixPath = CacheBlock.genSuffixPath(path, serverVersion);
-        return cacheBlockMap.containsKey(suffixPath);
     }
 
     /**
@@ -152,7 +144,8 @@ public class LRUCache {
         if (cacheBlockMap.containsKey(oldSuffixPath)) {
             CacheBlock cacheBlock = cacheBlockMap.get(oldSuffixPath);
             cacheBlock.setVersion(newVersion);
-            String newSuffixPath = CacheBlock.genSuffixPath(cacheBlock.getOrigPath(), newVersion);
+            String newSuffixPath =
+                    CacheBlock.genSuffixPath(cacheBlock.getOrigPath(), newVersion);
             System.err.println("[ new suffix path: " + newSuffixPath + " ]");
             File newSuffixFile = new File(cacheRoot + newSuffixPath);
             cacheBlock.renameFile(newSuffixFile);
@@ -222,7 +215,8 @@ public class LRUCache {
     }
 
     /**
-     * Get the original path (without suffix and cache root) of a write copy, without updating the LRU order.
+     * Get the original path (without suffix and cache root) of a write copy,
+     * without updating the LRU order.
      * @param path relative path of a write/read copy
      * @return relative path of an original copy
      */
@@ -232,19 +226,23 @@ public class LRUCache {
 
     public String getSuffixPath(String origPath) {
         return cacheBlockMap.get(
-                CacheBlock.genSuffixPath(origPath, pathVersion.get(origPath))).getSuffixPath();
+                CacheBlock.genSuffixPath(origPath,
+                        pathVersion.get(origPath))).getSuffixPath();
     }
 
     /**
-     * Write the write copy file back to the original file, and delete the write copy
-     * from cache. Move written block to front of LRU linked list. -- written file open count.
+     * Write the write copy file back to the original file, and delete the write
+     * copy from cache. Move written block to front of LRU linked list.
+     * -- written file open count.
      * @param path relative write copy path
      */
     public void garbageCollectWriteCopy(String path) {
         if (cacheBlockMap.containsKey(path)) {
             CacheBlock obsoleteWrite = cacheBlockMap.get(path);
             if (obsoleteWrite.prev == null && obsoleteWrite.next == null) {
-                String writtenFilePath = CacheBlock.genSuffixPath(getOrigPath(path), pathVersion.get(getOrigPath(path)));
+                String writtenFilePath =
+                        CacheBlock.genSuffixPath(getOrigPath(path),
+                                pathVersion.get(getOrigPath(path)));
                 System.err.println("[ written file path: " + writtenFilePath + " ]");
                 CacheBlock writtenFileBlock = cacheBlockMap.get(writtenFilePath);
                 File origFile = writtenFileBlock.getFile();
@@ -252,7 +250,9 @@ public class LRUCache {
                 V(writtenFilePath);
                 File writeCopyFile = cacheBlockMap.get(path).getFile();
                 try {
-                    Files.copy(writeCopyFile.toPath(), origFile.toPath(), REPLACE_EXISTING);
+                    Files.copy(writeCopyFile.toPath(),
+                            origFile.toPath(),
+                            REPLACE_EXISTING);
                 } catch (IOException e) {
                     e.printStackTrace(System.err);
                 }
@@ -270,7 +270,9 @@ public class LRUCache {
      * @param path file path on cache (with suffix write or version)
      */
     public void garbageCollectStaleVersion(String path) {
-        if (cacheBlockMap.containsKey(path) && !getOpenStatus(path) && !isValid(path)) {
+        if (cacheBlockMap.containsKey(path)
+                && !getOpenStatus(path)
+                && !isValid(path)) {
             CacheBlock staleBlock = cacheBlockMap.remove(path);
             removeBlock(staleBlock);
             currSize -= staleBlock.getFileSize();

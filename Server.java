@@ -112,6 +112,12 @@ public class Server extends UnicastRemoteObject implements RemoteFileHandler {
         }
     }
 
+    /**
+     * Collect file meta data from server.
+     * @param path relative file path on server
+     * @return file meta data.
+     * @throws RemoteException if RMI call fails
+     */
     @Override
     public FileMeta getFileMeta(String path) throws RemoteException {
         String absPath = root + path;
@@ -142,6 +148,11 @@ public class Server extends UnicastRemoteObject implements RemoteFileHandler {
         return versionMap.get(absPath);
     }
 
+    /**
+     * Delete file from server.
+     * @param path relative path to file
+     * @throws IOException if delete operation fails
+     */
     public void unlink(String path) throws IOException {
         String absPath = root + path;
         File file = new File(absPath);
@@ -154,7 +165,9 @@ public class Server extends UnicastRemoteObject implements RemoteFileHandler {
         }
     }
 
-    public static void main(String[] args) throws RemoteException, MalformedURLException, AlreadyBoundException {
+    public static void main(String[] args) throws RemoteException,
+            MalformedURLException,
+            AlreadyBoundException {
         if (args.length < ARG_LEN) {
             System.err.println("Missing arguments: expected 4, got " + args.length + ".");
             return;
