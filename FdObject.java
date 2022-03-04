@@ -8,18 +8,23 @@ import java.io.RandomAccessFile;
  * and is unique to each open-close session.
  */
 public class FdObject {
-    /** Relative path to RAF (Have suffix) */
-    private String path;
-    /** Random access file related to the session */
+    /**
+     * Relative path to RAF (with suffix)
+     */
+    private final String path;
+    /**
+     * Random access file related to the session
+     */
     private RandomAccessFile randomAccessFile;
     private boolean isDirectory;
 
     /**
      * Initialize the FdObject as a file, with mode specified for the
      * random access file.
+     *
      * @param cacheRoot root directory of cache folder
-     * @param path relative path
-     * @param mode read write permission flag
+     * @param path      relative path
+     * @param mode      read write permission flag
      * @throws FileNotFoundException when the file could not be found.
      */
     public FdObject(String cacheRoot, String path, String mode) throws FileNotFoundException {
@@ -29,6 +34,7 @@ public class FdObject {
 
     /**
      * Initialize the FdObject as a directory.
+     *
      * @param path relative path
      */
     public FdObject(String path) {

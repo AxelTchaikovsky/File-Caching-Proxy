@@ -12,9 +12,13 @@ public class LRUCache {
     private final String cacheRoot;
     private final CacheBlock head;
     private final CacheBlock tail;
-    /** Maps relative suffix path to cache block */
+    /**
+     * Maps relative suffix path to cache block
+     */
     private final Map<String, CacheBlock> cacheBlockMap;
-    /** Maps relative orignal path to version */
+    /**
+     * Maps relative original path to version
+     */
     private final Map<String, Long> pathVersion;
 
     public LRUCache(int cacheCapacity, String cacheRoot) {
@@ -32,8 +36,9 @@ public class LRUCache {
 
     /**
      * Put write copy in the cache, using relative file path on server.
-     * @param path relative path on server
-     * @param code file descriptor used for distinguishing
+     *
+     * @param path    relative path on server
+     * @param code    file descriptor used for distinguishing
      * @param version version that write copy is modifying on
      * @return relative write copy path
      */
@@ -51,11 +56,12 @@ public class LRUCache {
     }
 
     /**
-     * Put a new cached block into lru cache, if the file does not exist, create a
-     * new empty file. Set new file to open status. Put (original path, version) key pair
-     * into version map.
+     * Put a new cached block into lru cache, if the file does not exist, create
+     * a new empty file. Set new file to open status. Put (original path,
+     * version) key pair into version map.
+     *
      * @param origPath relative origPath
-     * @param version current version
+     * @param version  current version
      */
     public synchronized void put(String origPath, long version) {
         if (pathVersion.containsKey(origPath)
@@ -75,12 +81,14 @@ public class LRUCache {
 
     /**
      * Set previous version invalid, if it is in the cache and is stale.
+     *
      * @param origPath relative path on server
-     * @param version the newest version for stale check
+     * @param version  the newest version for stale check
      */
     public void setInvalid(String origPath, long version) {
         // Set previous version invalid
-        if (pathVersion.containsKey(origPath) && pathVersion.get(origPath) < version) {
+        if (pathVersion.containsKey(origPath)
+                && pathVersion.get(origPath) < version) {
             String stalePath =
                     CacheBlock.genSuffixPath(origPath, pathVersion.get(origPath));
             cacheBlockMap.get(stalePath).setValid(false);
@@ -122,6 +130,7 @@ public class LRUCache {
 
     /**
      * Delete file if exist in local cache.
+     *
      * @param path relative path on server
      * @throws IOException when <code>deleteIfExists</code> fails
      */
@@ -129,12 +138,12 @@ public class LRUCache {
         if (!pathVersion.containsKey(path)) {
             return;
         }
-        String suffixPath = CacheBlock.genSuffixPath(path, pathVersion.get(path));
         setInvalid(path, Integer.MAX_VALUE);
     }
 
     /**
      * Get version of file, without updating cache sequence.
+     *
      * @param path relative original path on server
      * @return version number or -1 if not found in cache
      */
@@ -148,10 +157,12 @@ public class LRUCache {
      * Rename the filename suffix, to match current version number.
      * Remap the new suffix path -> cache block entry in hashmap.
      * Remap the original path -> version entry in hashmap.
+     *
      * @param path relative suffix path (path + _ + version)
      */
     public void setFileVersion(String path, long newVersion) throws IOException {
-        String oldSuffixPath = CacheBlock.genSuffixPath(path, pathVersion.get(path));
+        String oldSuffixPath =
+                CacheBlock.genSuffixPath(path, pathVersion.get(path));
         pathVersion.put(path, newVersion);
         if (cacheBlockMap.containsKey(oldSuffixPath)) {
             CacheBlock cacheBlock = cacheBlockMap.get(oldSuffixPath);
@@ -162,12 +173,15 @@ public class LRUCache {
             File newSuffixFile = new File(cacheRoot + newSuffixPath);
             cacheBlock.renameFile(newSuffixFile);
             cacheBlockMap.put(newSuffixPath, cacheBlockMap.remove(oldSuffixPath));
-            System.err.println("[ Set new version file: " + cacheBlock.getFile().getAbsolutePath() + " ]");
+            System.err.println("[ Set new version file: "
+                    + cacheBlock.getFile().getAbsolutePath()
+                    + " ]");
         }
     }
 
     /**
      * ++ ref count of file, without updating cache sequence.
+     *
      * @param suffixPath relative path
      */
     public void P(String suffixPath) {
@@ -178,6 +192,7 @@ public class LRUCache {
 
     /**
      * -- ref count of file, without updating cache sequence.
+     *
      * @param suffixPath relative path
      */
     public void V(String suffixPath) {
@@ -188,6 +203,7 @@ public class LRUCache {
 
     /**
      * Get open status of file, without updating cache sequence.
+     *
      * @param path relative path
      */
     public boolean getOpenStatus(String path) {
@@ -207,6 +223,7 @@ public class LRUCache {
     /**
      * Precondition: path is valid in cache. Get the dirty status from
      * cache.
+     *
      * @param path relative path
      * @return true if is dirty, false otherwise
      */
@@ -220,6 +237,7 @@ public class LRUCache {
     /**
      * Precondition: path is valid in cache. Set the dirty status from
      * cache.
+     *
      * @param path relative path
      */
     public void setDirtyStatus(String path, boolean isDirty) {
@@ -229,6 +247,7 @@ public class LRUCache {
     /**
      * Get the original path (without suffix and cache root) of a write copy,
      * without updating the LRU order.
+     *
      * @param path relative path of a write/read copy
      * @return relative path of an original copy
      */
@@ -243,9 +262,10 @@ public class LRUCache {
     }
 
     /**
-     * Write the write copy file back to the original file, and delete the write
+     * Write the write-copy file back to the original file, and delete write
      * copy from cache. Move written block to front of LRU linked list.
      * -- written file open count.
+     *
      * @param path relative write copy path
      */
     public void garbageCollectWriteCopy(String path) {
@@ -278,8 +298,9 @@ public class LRUCache {
     }
 
     /**
-     * Delete stale read copy if it is not open by any client anymore.
-     * Would do nothing if path points to a write copy.
+     * Delete stale read copy if it is not open by any client anymore. Would do
+     * nothing if path points to a write copy.
+     *
      * @param path file path on cache (with suffix write or version)
      */
     public void garbageCollectStaleVersion(String path) {
@@ -289,7 +310,9 @@ public class LRUCache {
             CacheBlock staleBlock = cacheBlockMap.remove(path);
             removeBlock(staleBlock);
             currSize -= staleBlock.getFileSize();
-            System.err.println("[ Delete stale copy: " + staleBlock.getFile().getAbsolutePath() + " ]");
+            System.err.println("[ Delete stale copy: "
+                    + staleBlock.getFile().getAbsolutePath()
+                    + " ]");
             staleBlock.getFile().delete();
         }
     }
@@ -322,6 +345,7 @@ public class LRUCache {
 
     /**
      * Remove the least recently used block that is not currently open.
+     *
      * @return the removed block, or null if all cache are open.
      */
     private synchronized CacheBlock removeTail() {
@@ -339,7 +363,7 @@ public class LRUCache {
     }
 
     public String getCacheRoot() {
-        return  cacheRoot;
+        return cacheRoot;
     }
 
     public void printCache() {

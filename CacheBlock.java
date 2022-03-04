@@ -5,31 +5,51 @@ import java.nio.file.Files;
 import static java.nio.file.StandardCopyOption.REPLACE_EXISTING;
 
 public class CacheBlock {
-    /** Suffixed path of cached file */
+    /**
+     * Suffixed path of cached file
+     */
     private String suffixPath;
-    /** File object cached, one instance each file */
+    /**
+     * File object cached, one instance each file
+     */
     private File file;
-    /** Flag indicating if the cache has been changed */
+    /**
+     * Flag indicating if the cache has been changed
+     */
     private boolean isDirty;
-    /** Indicating if the current version is valid */
+    /**
+     * Indicating if the current version is valid
+     */
     private boolean isValid;
-    /** Version number */
+    /**
+     * Version number
+     */
     private long version;
-    /** Original relative path name */
+    /**
+     * Original relative path name
+     */
     private String origPath;
-    /** A reference counter indicating how many client is opening the file */
+    /**
+     * A reference counter indicating how many client is opening the file
+     */
     private int refCnt;
-    /** Pointer to previous block */
+    /**
+     * Pointer to previous block
+     */
     public CacheBlock prev;
-    /** Pointer to next block */
+    /**
+     * Pointer to next block
+     */
     public CacheBlock next;
 
-    public CacheBlock() {}
+    public CacheBlock() {
+    }
 
     /**
      * Creat cache block with relative path and version number.
+     *
      * @param origPath relative path (with version suffix) to file
-     * @param version current version number
+     * @param version  current version number
      */
     public CacheBlock(String cacheRoot, String origPath, long version) {
         this.origPath = origPath;
@@ -51,8 +71,9 @@ public class CacheBlock {
      * Make a write copy of the original file into the cache, not linking it
      * into the double linked list. Write copy's life span is from open() to
      * close().
-     * @param cacheRoot cache directory + writeCopyPath
-     * @param origPath original relative path
+     *
+     * @param cacheRoot     cache directory + writeCopyPath
+     * @param origPath      original relative path
      * @param writeCopyPath relative write copy path
      */
     public CacheBlock(String cacheRoot, String origPath, String writeCopyPath, long version) {
@@ -66,7 +87,11 @@ public class CacheBlock {
         this.refCnt = 0;
         File origFile = new File(cacheRoot + origPath + "_" + version);
         try {
-            System.err.println(" Copy from [ " + origFile.getAbsolutePath() + " ] to [ " + file.getAbsolutePath() + " ]");
+            System.err.println(" Copy from [ "
+                    + origFile.getAbsolutePath()
+                    + " ] to [ "
+                    + file.getAbsolutePath()
+                    + " ]");
             Files.copy(origFile.toPath(), file.toPath(), REPLACE_EXISTING);
             System.err.println("[ Write Copy created @: " + cachePath + " ]");
         } catch (IOException e) {
@@ -126,7 +151,8 @@ public class CacheBlock {
 
     /**
      * Generate path + _ + version string.
-     * @param path relative path to server file
+     *
+     * @param path    relative path to server file
      * @param version the current version of file
      * @return path with version as its suffix to distinguish from other
      * versions.

@@ -4,7 +4,7 @@ import java.io.Serializable;
  * Wrapper for bytes array for file transfer used in RPC calls.
  */
 public class RawFile implements Serializable {
-    private byte[] buf;
+    private final byte[] buf;
 
     RawFile(byte[] buf) {
         this.buf = buf;

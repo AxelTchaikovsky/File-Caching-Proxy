@@ -17,10 +17,15 @@ public class Server extends UnicastRemoteObject implements RemoteFileHandler {
 
     private static final int ARG_LEN = 2;
     private static String root;
-    /** hash map between absolute path on server and an object lock */
+    /**
+     * hash map between absolute path on server and an object lock
+     */
     private final Map<String, Object> masterCopysMap;
-    /** hash map between absolute path on server and version number */
+    /**
+     * hash map between absolute path on server and version number
+     */
     private final Map<String, Long> versionMap;
+
     /**
      * Creates and exports a new UnicastRemoteObject object using the
      * particular supplied port.
@@ -36,7 +41,7 @@ public class Server extends UnicastRemoteObject implements RemoteFileHandler {
      */
     protected Server(int port, String root) throws RemoteException {
         super(port);
-        this.root = root;
+        Server.root = root;
         masterCopysMap = new ConcurrentHashMap<>();
         versionMap = new ConcurrentHashMap<>();
     }
@@ -44,14 +49,17 @@ public class Server extends UnicastRemoteObject implements RemoteFileHandler {
     /**
      * Read <code>nbytes</code> of the file, starting from a give offset, reader can read
      * at any time, not synchronized
-     * @param path relative path pointing to the file
+     *
+     * @param path   relative path pointing to the file
      * @param nbytes denotes how many bytes to read from file
      * @param offset read will be starting from this offset
      * @return nbytes of raw data read form file
      * @throws RemoteException if failed to export object
      */
     @Override
-    public RawFile getFile(String path, int nbytes, long offset) throws RemoteException {
+    public RawFile getFile(String path,
+                           int nbytes,
+                           long offset) throws RemoteException {
         String absPath = root + path;
         File file = new File(absPath);
         byte[] buf = new byte[nbytes];
@@ -70,24 +78,28 @@ public class Server extends UnicastRemoteObject implements RemoteFileHandler {
 
     /**
      * Write bytes on to server file.
-     * @param path relative path to file on server
-     * @param buf buffer of bytes of content to write
+     *
+     * @param path   relative path to file on server
+     * @param buf    buffer of bytes of content to write
      * @param offset the offset position, measured in bytes from the beginning
      *               of the file
      * @return new version number
      * @throws RemoteException on RMI failure
      */
     @Override
-    public long writeFile(String path, byte[] buf, long offset) throws RemoteException {
+    public long writeFile(String path,
+                          byte[] buf,
+                          long offset) throws RemoteException {
         String absPath = root + path;
         File file = new File(absPath);
         long newVersion = -1;
-        System.err.println("[ Writing to file : " + absPath  + " ]");
+        System.err.println("[ Writing to file : " + absPath + " ]");
         // Mutual exclusion: one writer at a time
         masterCopysMap.putIfAbsent(absPath, new Object());
         synchronized (masterCopysMap.get(absPath)) {
             try {
-                RandomAccessFile randomAccessFile = new RandomAccessFile(file, "rw");
+                RandomAccessFile randomAccessFile =
+                        new RandomAccessFile(file, "rw");
                 randomAccessFile.seek(offset);
                 randomAccessFile.write(buf);
                 // Update version number
@@ -104,15 +116,16 @@ public class Server extends UnicastRemoteObject implements RemoteFileHandler {
     /**
      * Create an empty file in server, called when proxy open for create and cannot find the
      * file on server
+     *
      * @param path relative path to root dir
      * @return true if the file is successfully created
      * @throws IOException when creating file there's and I/O exception or RMI method's
-     * remote exception
+     *                     remote exception
      */
     @Override
     public boolean creatFile(String path) throws IOException {
         String absPath = root + path;
-        System.err.println("[ Creating file : " + absPath  + " ]");
+        System.err.println("[ Creating file : " + absPath + " ]");
         File file = new File(absPath);
         // Mutual exclusion: one writer at a time
         masterCopysMap.putIfAbsent(absPath, new Object());
@@ -123,6 +136,7 @@ public class Server extends UnicastRemoteObject implements RemoteFileHandler {
 
     /**
      * Collect file meta data from server.
+     *
      * @param path relative file path on server
      * @return file meta data.
      * @throws RemoteException if RMI call fails
@@ -142,6 +156,7 @@ public class Server extends UnicastRemoteObject implements RemoteFileHandler {
 
     /**
      * Get latest file version from server side, uses relative path.
+     *
      * @param path relative path
      * @return return -1 if file doesn't exist on server, otherwise return version.
      * @throws RemoteException when RMI fails
@@ -159,6 +174,7 @@ public class Server extends UnicastRemoteObject implements RemoteFileHandler {
 
     /**
      * Delete file from server.
+     *
      * @param path relative path to file
      * @throws IOException if delete operation fails
      */
