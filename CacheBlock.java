@@ -111,7 +111,7 @@ public class CacheBlock {
     }
 
     public boolean isOpen() {
-        System.err.println(refCnt + " clients opening the file. ");
+        System.err.println(refCnt + " clients opening " + file.getPath() + ". ");
         return refCnt > 0;
     }
 

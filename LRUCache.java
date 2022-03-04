@@ -30,6 +30,13 @@ public class LRUCache {
         pathVersion = new ConcurrentHashMap<>();
     }
 
+    /**
+     * Put write copy in the cache, using relative file path on server.
+     * @param path relative path on server
+     * @param code file descriptor used for distinguishing
+     * @param version version that write copy is modifying on
+     * @return relative write copy path
+     */
     public synchronized String putWriteCopy(String path, int code, long version) {
         String writeCopyPath = path + "_write_" + code;
         // Creates write copy in cache dir but not put it in double linked list.
@@ -51,6 +58,11 @@ public class LRUCache {
      * @param version current version
      */
     public synchronized void put(String origPath, long version) {
+        if (pathVersion.containsKey(origPath)
+                && pathVersion.get(origPath) == version) {
+            System.err.println("[ " + origPath + "Already in cache. ]");
+            return;
+        }
         CacheBlock cacheBlock = new CacheBlock(cacheRoot, origPath, version);
         cacheBlockMap.put(cacheBlock.getSuffixPath(), cacheBlock);
         System.err.println("[ Put: " + cacheBlock.getSuffixPath() + " ]");
@@ -246,6 +258,7 @@ public class LRUCache {
                 System.err.println("[ written file path: " + writtenFilePath + " ]");
                 CacheBlock writtenFileBlock = cacheBlockMap.get(writtenFilePath);
                 File origFile = writtenFileBlock.getFile();
+                currSize -= origFile.length();
                 moveToHead(writtenFileBlock);
                 V(writtenFilePath);
                 File writeCopyFile = cacheBlockMap.get(path).getFile();
@@ -256,7 +269,7 @@ public class LRUCache {
                 } catch (IOException e) {
                     e.printStackTrace(System.err);
                 }
-                currSize -= writeCopyFile.length();
+//                currSize -= writeCopyFile.length();
                 cacheBlockMap.remove(path);
                 System.err.println("[ Delete write copy: " + writeCopyFile.getAbsolutePath() + " ]");
                 writeCopyFile.delete();
@@ -332,7 +345,7 @@ public class LRUCache {
     public void printCache() {
         CacheBlock cacheBlock = head.next;
         while (cacheBlock != tail) {
-            System.err.println(cacheBlock.getSuffixPath() + "->");
+            System.err.print(cacheBlock.getSuffixPath() + "->");
             cacheBlock = cacheBlock.next;
         }
     }

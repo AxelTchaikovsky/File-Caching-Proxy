@@ -23,6 +23,7 @@ public class Proxy {
         /** A thread-safe relative path to if-cache-dirty map */
         private final Map<String, Boolean> pathDirty = new ConcurrentHashMap<>();
         private static final int MAX_CHUNK_SIZE = 64000;
+//        private static final int MAX_CHUNK_SIZE = 128;
 
         /**
          * Download file from server, if file too big, get file by chunks. In the meantime,
@@ -30,6 +31,7 @@ public class Proxy {
          * @param path relative path to file
          */
         private synchronized void getFileFromServer(String path, FileMeta fileMeta) {
+            if (lruCache.getFileVersion(path) >= fileMeta.getVersion()) return;
             System.err.println("[ Download file from server to cache ]");
             try {
                 if (!fileMeta.exists()) {
@@ -71,7 +73,7 @@ public class Proxy {
             rawFile = server.getFile(path,
                     (int) (fileMeta.getLength() - offset),
                     offset);
-            System.err.println(" "+ offset +" "+ fileMeta.getLength());
+//            System.err.println(" "+ offset +" "+ fileMeta.getLength());
 //                System.err.println("[ Raw file content: " + Arrays.toString(rawFile.getBuf()) + " ]");
 //            System.err.println("[ Raw file size: " + rawFile.getBuf().length + " ]");
             randomAccessFile.write(rawFile.getBuf());
@@ -86,13 +88,13 @@ public class Proxy {
          */
         public int open(String path, OpenOption o) {
             /*--------------------  DEBUG PRINT MESSAGE S  --------------------*/
-            System.err.println("Open: " + path + "\n");
-            switch (o) {
-                case READ: System.err.println("MODE: Read\n"); break;
-                case WRITE: System.err.println("MODE: Write\n"); break;
-                case CREATE: System.err.println("MODE: Create\n"); break;
-                case CREATE_NEW: System.err.println("MODE: Creat_new\n"); break;
-            }
+//            System.err.println("Open: " + path + "\n");
+//            switch (o) {
+//                case READ: System.err.println("MODE: Read\n"); break;
+//                case WRITE: System.err.println("MODE: Write\n"); break;
+//                case CREATE: System.err.println("MODE: Create\n"); break;
+//                case CREATE_NEW: System.err.println("MODE: Creat_new\n"); break;
+//            }
             /*--------------------  DEBUG PRINT MESSAGE E  --------------------*/
 
             FileMeta fileMeta = new FileMeta();
@@ -129,12 +131,12 @@ public class Proxy {
             }
 
             /*--------------------  DEBUG PRINT MESSAGE S  --------------------*/
-            if (!fileMeta.exists()) {
-                System.err.println("File doesn't exist remotely.\n");
-            }
-            if (fileMeta.isDirectory()) {
-                System.err.println("file is directory\n");
-            }
+//            if (!fileMeta.exists()) {
+//                System.err.println("File doesn't exist remotely.\n");
+//            }
+//            if (fileMeta.isDirectory()) {
+//                System.err.println("file is directory\n");
+//            }
             /*--------------------  DEBUG PRINT MESSAGE E  --------------------*/
 
             try {
@@ -202,7 +204,7 @@ public class Proxy {
         private void renderCacheMiss(String path,
                                      FileMeta fileMeta,
                                      String cachePath) throws IOException {
-            System.err.println("Local file: " + path + " doesn't exist.");
+//            System.err.println("Local file: " + path + " doesn't exist.");
             if (!fileMeta.exists()) {
                 // Create empty file when file is not on server
                 if (!server.creatFile(path)) {
@@ -306,8 +308,8 @@ public class Proxy {
          * (referenced). If still open, do nothing. If not begin open and is
          * invalidated, then do garbage collection,
          * remove from cache and delete on disk.
-         * @param fd
-         * @return
+         * @param fd file descriptor
+         * @return 0 on success,
          */
         public synchronized int close( int fd ) {
             System.err.println("[ Closing fd: " + fd + " ]");

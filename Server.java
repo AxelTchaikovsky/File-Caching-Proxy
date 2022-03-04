@@ -68,6 +68,15 @@ public class Server extends UnicastRemoteObject implements RemoteFileHandler {
         return new RawFile(buf);
     }
 
+    /**
+     * Write bytes on to server file.
+     * @param path relative path to file on server
+     * @param buf buffer of bytes of content to write
+     * @param offset the offset position, measured in bytes from the beginning
+     *               of the file
+     * @return new version number
+     * @throws RemoteException on RMI failure
+     */
     @Override
     public long writeFile(String path, byte[] buf, long offset) throws RemoteException {
         String absPath = root + path;
@@ -121,7 +130,7 @@ public class Server extends UnicastRemoteObject implements RemoteFileHandler {
     @Override
     public FileMeta getFileMeta(String path) throws RemoteException {
         String absPath = root + path;
-        System.err.println("[ Getting metadata : " + absPath  + " ]");
+//        System.err.println("[ Getting metadata : " + absPath  + " ]");
         File file = new File(absPath);
         FileMeta fileMeta = new FileMeta();
         fileMeta.setFileExists(file.exists());
